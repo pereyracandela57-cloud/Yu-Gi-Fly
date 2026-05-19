@@ -572,20 +572,26 @@ function hideSurrenderVictoryModal() {
 }
 
 async function respondToChallenge(status) {
-  if (!currentUserId || !activeChallenge) return;
-  const challengeToRespond = activeChallenge;
-  if (status === 'accepted') {
-    await createBattleSessionForChallenge(challengeToRespond);
+  if (!currentUserId || !activeChallenge || isRespondingToChallenge) return;
+  isRespondingToChallenge = true;
+  const challengeToRespond = { ...activeChallenge };
+  const challengerName = challengeToRespond?.fromName || 'otro usuario';
+  try {
+    if (status === 'accepted') {
+      await createBattleSessionForChallenge(challengeToRespond);
+    }
+    await battleChallengesRef.child(currentUserId).remove();
+    hideChallengeModal();
+    renderOnlineUsers();
+    setSyncStatus(
+      status === 'accepted'
+        ? `Aceptaste el reto de ${challengerName}.`
+        : `Rechazaste el reto de ${challengerName}.`,
+      'success',
+    );
+  } finally {
+    isRespondingToChallenge = false;
   }
-  await battleChallengesRef.child(currentUserId).remove();
-  hideChallengeModal();
-  renderOnlineUsers();
-  setSyncStatus(
-    status === 'accepted'
-      ? `Aceptaste el reto de ${challengeToRespond.fromName || 'otro usuario'}.`
-      : `Rechazaste el reto de ${challengeToRespond.fromName || 'otro usuario'}.`,
-    'success',
-  );
 }
 
 async function loadDeckForUser(userId) {
@@ -790,7 +796,8 @@ function hideCardActionModal() {
 }
 
 async function createBattleSessionForChallenge(challengeData) {
-  const accepterDeck = [...savedDeck.characterIds];
+  const accepterDeckSnapshot = await userDecksRef.child(challengeData.toUid).once('value');
+  const accepterDeck = (accepterDeckSnapshot.val()?.characterIds) || [];
   if (accepterDeck.length !== 20) throw new Error('Debes tener mazo de 20 cartas para aceptar.');
   const challengerDeckSnapshot = await userDecksRef.child(challengeData.fromUid).once('value');
   const challengerDeck = (challengerDeckSnapshot.val()?.characterIds) || [];
@@ -1384,6 +1391,7 @@ const battleAttackOptions = document.querySelector('#battle-attack-options');
 const battleAttackCancelButton = document.querySelector('#battle-attack-cancel');
 const battleAttributes = ['magic', 'strength', 'intelligence', 'speed'];
 let pendingAttributePick = null;
+let isRespondingToChallenge = false;
 
 function openAttributePicker(mode, card, onPick) {
   pendingAttributePick = { mode, onPick };
