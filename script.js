@@ -421,13 +421,19 @@ function renderOnlineUsers() {
     .map((user) => {
       const hasOpenBattle = Boolean(getOpenBattleWithUser(user.uid));
       const isOnline = Boolean(onlineUsers[user.uid]);
+      const isSurrendering = surrenderInFlightUserId === user.uid;
+      const hasPendingOutgoingChallenge = pendingChallenges.some((challenge) => (
+        challenge?.status === 'pending'
+        && challenge?.fromUid === currentUserId
+        && challenge?.toUid === user.uid
+      ));
       return `
       <article class="battle-user-card">
         <p class="battle-user-name">${escapeHtml(user.name || 'Usuario sin nombre')}</p>
         <p class="battle-user-status">${isOnline ? 'En línea' : 'Desconectado'}</p>
         <div class="battle-user-actions">
-          <button class="save-character-btn challenge-user-btn" type="button" data-challenge-user-id="${escapeHtml(user.uid)}" data-challenge-user-name="${escapeHtml(user.name || 'Usuario')}">
-            Retar a batalla
+          <button class="save-character-btn challenge-user-btn" type="button" data-challenge-user-id="${escapeHtml(user.uid)}" data-challenge-user-name="${escapeHtml(user.name || 'Usuario')}" ${hasPendingOutgoingChallenge ? 'disabled' : ''}>
+            ${hasPendingOutgoingChallenge ? 'Esperando Respuesta' : 'Retar a batalla'}
           </button>
           ${hasOpenBattle ? `<button class="cancel-character-btn surrender-battle-btn" type="button" data-surrender-user-id="${escapeHtml(user.uid)}" ${isSurrendering ? 'disabled' : ''}>${isSurrendering ? 'Procesando...' : 'Rendirse'}</button>` : ''}
         </div>
@@ -567,20 +573,17 @@ function hideSurrenderVictoryModal() {
 
 async function respondToChallenge(status) {
   if (!currentUserId || !activeChallenge) return;
-  let battleId = '';
+  const challengeToRespond = activeChallenge;
   if (status === 'accepted') {
-    battleId = await createBattleSessionForChallenge(activeChallenge);
+    await createBattleSessionForChallenge(challengeToRespond);
   }
-  await battleChallengesRef.child(currentUserId).update({
-    status,
-    battleId,
-    respondedAt: getTimestamp(),
-  });
+  await battleChallengesRef.child(currentUserId).remove();
   hideChallengeModal();
+  renderOnlineUsers();
   setSyncStatus(
     status === 'accepted'
-      ? `Aceptaste el reto de ${activeChallenge.fromName || 'otro usuario'}.`
-      : `Rechazaste el reto de ${activeChallenge.fromName || 'otro usuario'}.`,
+      ? `Aceptaste el reto de ${challengeToRespond.fromName || 'otro usuario'}.`
+      : `Rechazaste el reto de ${challengeToRespond.fromName || 'otro usuario'}.`,
     'success',
   );
 }
