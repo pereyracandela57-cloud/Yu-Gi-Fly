@@ -297,15 +297,27 @@ function updateTypeColorPreview() {
   colorPreview.innerHTML = `Color asignado: <strong>${typeSelect.value}</strong>`;
 }
 
-function renderCharacterCard(character) {
-  const safeName = escapeHtml(character.name);
-  const safeImage = escapeHtml(character.image);
+function renderSharedCharacterCard(character, options = {}) {
+  const {
+    dataAttribute = 'data-character-id',
+    dataValue = character.id,
+    extraClasses = '',
+    ariaLabel = `Abrir perfil de ${character.name}`,
+    tagsText = `${character.type} · ${character.clan}`,
+    footerPrefix = '',
+    inlineStyle = '',
+  } = options;
+
+  const safeName = escapeHtml(character.name || 'Carta');
+  const safeImage = escapeHtml(character.image || '');
+  const safeDataValue = escapeHtml(dataValue || '');
   const imageMarkup = character.image
     ? `<img class="character-card-image" src="${safeImage}" alt="Imagen de ${safeName}">`
     : '<div class="character-card-image placeholder-image">Sin imagen</div>';
 
   return `
-    <button class="character-card character-gallery-card" type="button" data-character-id="${escapeHtml(character.id)}" style="${getTypeColorStyles(character.type)}" aria-label="Abrir perfil de ${safeName}">
+    <button class="character-card character-gallery-card ${extraClasses}" type="button" ${dataAttribute}="${safeDataValue}" style="${getTypeColorStyles(character.type)}${inlineStyle}" aria-label="${escapeHtml(ariaLabel)}">
+      ${footerPrefix}
       <span class="character-card-layout">
         <span class="character-card-header">${safeName}</span>
         <span class="character-card-right">${imageMarkup}</span>
@@ -324,6 +336,10 @@ function renderCharacterCard(character) {
       </span>
     </button>
   `;
+}
+
+function renderCharacterCard(character) {
+  return renderSharedCharacterCard(character, { extraClasses: 'character-size-personajes' });
 }
 
 function renderGallery() {
@@ -375,20 +391,12 @@ function renderDeckBuilder() {
     const order = orderMap.get(character.id);
     const isMain = mainSet.has(character.id);
     return `
-          <button class="character-card deck-card ${isSelected ? 'is-picked' : ''} ${isMain ? 'is-main' : ''}" type="button" data-deck-character-id="${escapeHtml(character.id)}" style="${getTypeColorStyles(character.type)}">
-            ${order ? `<span class="pick-order">${order}</span>` : ''}
-            ${isMain ? '<span class="main-badge">Principal</span>' : ''}
-            <span class="character-card-header">${escapeHtml(character.name)}</span>
-            <span class="character-card-footer">
-              <span class="character-type-clan-tag">${escapeHtml(character.type)} · ${escapeHtml(character.clan)}</span>
-              <span class="stats-list" aria-label="Atributos de ${escapeHtml(character.name)}">
-                <span><strong>F</strong>: ${escapeHtml(character.strength)}</span>
-                <span><strong>I</strong>: ${escapeHtml(character.intelligence)}</span>
-                <span><strong>M</strong>: ${escapeHtml(character.magic)}</span>
-                <span><strong>V</strong>: ${escapeHtml(character.speed)}</span>
-              </span>
-            </span>
-          </button>
+          ${renderSharedCharacterCard(character, {
+    dataAttribute: 'data-deck-character-id',
+    extraClasses: `deck-card character-size-compact ${isSelected ? 'is-picked' : ''} ${isMain ? 'is-main' : ''}`,
+    footerPrefix: `${order ? `<span class="pick-order">${order}</span>` : ''}${isMain ? '<span class="main-badge">Principal</span>' : ''}`,
+    ariaLabel: `Seleccionar ${character.name} para el mazo`,
+  })}
         `;
   }).join('')}
     </section>
@@ -817,18 +825,20 @@ function renderBattleArena() {
   battleHand.innerHTML = myState.hand.map((cardId) => {
     const card = characters.find((entry) => entry.id === cardId);
     const selectedClass = selectedHandCardId === cardId ? 'is-picked' : '';
-    return `<button class="character-card deck-card battle-hand-card ${selectedClass}" type="button" data-battle-hand-id="${escapeHtml(cardId)}">
-      <span class="character-card-header">${escapeHtml(card?.name || 'Carta')}</span>
-      <span class="character-card-footer">
-        <span class="character-type-clan-tag">${escapeHtml(card?.type || '')} · ${escapeHtml(card?.clan || '')}</span>
-        <span class="stats-list">
-          <span><strong>F</strong>: ${escapeHtml(getEffectiveStatValue(activeBattleSession, cardId, 'strength') || 0)}</span>
-          <span><strong>I</strong>: ${escapeHtml(getEffectiveStatValue(activeBattleSession, cardId, 'intelligence') || 0)}</span>
-          <span><strong>M</strong>: ${escapeHtml(getEffectiveStatValue(activeBattleSession, cardId, 'magic') || 0)}</span>
-          <span><strong>V</strong>: ${escapeHtml(getEffectiveStatValue(activeBattleSession, cardId, 'speed') || 0)}</span>
-        </span>
-      </span>
-    </button>`;
+    if (!card) return '';
+    const liveCard = {
+      ...card,
+      strength: getEffectiveStatValue(activeBattleSession, cardId, 'strength') || 0,
+      intelligence: getEffectiveStatValue(activeBattleSession, cardId, 'intelligence') || 0,
+      magic: getEffectiveStatValue(activeBattleSession, cardId, 'magic') || 0,
+      speed: getEffectiveStatValue(activeBattleSession, cardId, 'speed') || 0,
+    };
+    return renderSharedCharacterCard(liveCard, {
+      dataAttribute: 'data-battle-hand-id',
+      dataValue: cardId,
+      extraClasses: `deck-card battle-hand-card character-size-compact ${selectedClass}`,
+      ariaLabel: `Carta en mano ${card.name}`,
+    });
   }).join('') || '<p>No tienes cartas en mano.</p>';
 
   const renderSlots = (ownerUid, slotsContainer, isPlayer) => {
@@ -857,14 +867,12 @@ function renderBattleCharacterCard(card, { hidden = false } = {}) {
   if (!card) {
     return '<span class="battle-slot-empty">Carta</span>';
   }
-  return `
-    <span class="battle-mini-card" style="${getTypeColorStyles(card.type)}">
-      <span class="battle-mini-name">${escapeHtml(card.name)}</span>
-      ${card.image ? `<img class="battle-mini-image" src="${escapeHtml(card.image)}" alt="${escapeHtml(card.name)}">` : '<span class="battle-mini-image placeholder-image">Sin imagen</span>'}
-      <span class="battle-mini-meta"><span class="character-type-clan-tag">${escapeHtml(card.type)} · ${escapeHtml(card.clan)}</span></span>
-      <span class="battle-mini-stats">F: ${escapeHtml(getEffectiveStatValue(activeBattleSession, card.id, 'strength'))} | I: ${escapeHtml(getEffectiveStatValue(activeBattleSession, card.id, 'intelligence'))} | M: ${escapeHtml(getEffectiveStatValue(activeBattleSession, card.id, 'magic'))} | V: ${escapeHtml(getEffectiveStatValue(activeBattleSession, card.id, 'speed'))}</span>
-    </span>
-  `;
+  return renderSharedCharacterCard(card, {
+    dataAttribute: 'data-battle-field-id',
+    dataValue: card.id,
+    extraClasses: 'battle-field-card character-size-compact',
+    ariaLabel: `Carta en campo ${card.name}`,
+  });
 }
 
 function showCardActionModal(cardId) {
