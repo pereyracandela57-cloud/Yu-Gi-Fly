@@ -146,6 +146,7 @@ let pendingPlacementMode = null;
 let pendingAttack = null;
 const shownSurrenderVictoryBySessionId = new Set();
 const previousBattleStatusBySessionId = {};
+let hasInitializedBattleSessions = false;
 
 buttons.forEach((button) => {
   button.addEventListener('click', () => {
@@ -1200,6 +1201,7 @@ function toggleAuthenticatedUi(user) {
   if (!isLogged) {
     const previousUserId = currentUserId;
     currentUserId = null;
+    hasInitializedBattleSessions = false;
     savedDeck = { characterIds: [], mainIds: [] };
     selectedDeckIds = [];
     deckOrder = [];
@@ -1215,6 +1217,7 @@ function toggleAuthenticatedUi(user) {
   }
 
   currentUserId = user.uid;
+  hasInitializedBattleSessions = false;
 
   userName.textContent = user.displayName || 'Usuario sin nombre';
   userUid.textContent = `UID: ${user.uid}`;
@@ -1502,6 +1505,10 @@ battleSessionsRef.on('value', (snapshot) => {
   }
   const previousBattleId = activeBattleSession?.id;
   activeBattleSession = current;
+  if (!hasInitializedBattleSessions) {
+    battleArenaDismissed = true;
+    hasInitializedBattleSessions = true;
+  }
   if (previousBattleId !== current.id) {
     battleArenaDismissed = false;
   }
