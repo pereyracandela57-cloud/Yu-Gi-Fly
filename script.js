@@ -1052,6 +1052,14 @@ async function signInWithGoogle() {
     await auth.signInWithPopup(googleProvider);
   } catch (error) {
     console.error('Error al iniciar sesión con Google:', error);
+    if (error?.code === 'auth/unauthorized-domain') {
+      setSyncStatus(
+        'Este dominio no está autorizado en Firebase Auth. Agrega el dominio actual en Firebase Console > Authentication > Settings > Authorized domains.',
+        'error'
+      );
+      return;
+    }
+    setSyncStatus('No se pudo iniciar sesión con Google. Inténtalo de nuevo.', 'error');
   }
 }
 
