@@ -880,6 +880,18 @@ body::before {
 .battle-close-btn {
   margin-left: auto;
 }
+.battle-user-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.surrender-battle-btn {
+  border-color: rgba(171, 54, 54, 0.7);
+  background: linear-gradient(145deg, #f1b0b0, #d15c5c 45%, #8f2525 100%);
+  color: #2f0808;
+}
+
 
 .battle-hand,
 .battle-slots {

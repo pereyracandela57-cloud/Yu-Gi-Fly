@@ -383,15 +383,39 @@ function renderOnlineUsers() {
   }
 
   battleUsersList.innerHTML = users
-    .map((user) => `
+    .map((user) => {
+      const hasOpenBattle = Boolean(getOpenBattleWithUser(user.uid));
+      return `
       <article class="battle-user-card">
         <p class="battle-user-name">${escapeHtml(user.name || 'Usuario sin nombre')}</p>
-        <button class="save-character-btn challenge-user-btn" type="button" data-challenge-user-id="${escapeHtml(user.uid)}" data-challenge-user-name="${escapeHtml(user.name || 'Usuario')}">
-          ${getOpenBattleWithUser(user.uid) ? 'Reabrir batalla' : 'Retar a batalla'}
-        </button>
+        <div class="battle-user-actions">
+          <button class="save-character-btn challenge-user-btn" type="button" data-challenge-user-id="${escapeHtml(user.uid)}" data-challenge-user-name="${escapeHtml(user.name || 'Usuario')}">
+            ${hasOpenBattle ? 'Reabrir batalla' : 'Retar a batalla'}
+          </button>
+          ${hasOpenBattle ? `<button class="cancel-character-btn surrender-battle-btn" type="button" data-surrender-user-id="${escapeHtml(user.uid)}">Rendirse</button>` : ''}
+        </div>
       </article>
-    `)
+    `;
+    })
     .join('');
+}
+
+async function surrenderBattleAgainst(targetUserId) {
+  const session = getOpenBattleWithUser(targetUserId);
+  if (!session || !currentUserId) return;
+  const opponentUid = (session.players || []).find((uid) => uid !== currentUserId);
+  if (!opponentUid) return;
+
+  await battleSessionsRef.child(session.id).update({
+    status: 'finished',
+    winnerUid: opponentUid,
+    loserUid: currentUserId,
+    endedAt: getTimestamp(),
+    updatedAt: getTimestamp(),
+  });
+
+  battleArenaDismissed = false;
+  setSyncStatus('Te rendiste. La batalla fue otorgada al contrincante.', 'success');
 }
 
 function getOpenBattleWithUser(targetUserId) {
@@ -1215,6 +1239,17 @@ document.addEventListener('click', (event) => {
 });
 
 battleUsersList.addEventListener('click', (event) => {
+  const surrenderTrigger = event.target.closest('.surrender-battle-btn');
+  if (surrenderTrigger) {
+    const confirmSurrender = window.confirm('¿Seguro que quieres rendirte? Esta batalla se dará por perdida.');
+    if (!confirmSurrender) return;
+    surrenderBattleAgainst(surrenderTrigger.dataset.surrenderUserId).catch((error) => {
+      console.error('No se pudo rendir la batalla:', error);
+      setSyncStatus('No se pudo completar la rendición.', 'error');
+    });
+    return;
+  }
+
   const trigger = event.target.closest('.challenge-user-btn');
   if (!trigger) return;
   const openBattle = getOpenBattleWithUser(trigger.dataset.challengeUserId);
