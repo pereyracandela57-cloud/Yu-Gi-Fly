@@ -132,6 +132,8 @@ let savedDeck = { characterIds: [], mainIds: [] };
 let onlineUsers = {};
 let activeChallenge = null;
 let activeBattleSession = null;
+let battleSessions = [];
+let pendingChallenges = [];
 let battleArenaDismissed = false;
 let selectedHandCardId = null;
 let pendingPlacementMode = null;
@@ -293,18 +295,19 @@ function renderCharacterCard(character) {
 
   return `
     <button class="character-card" type="button" data-character-id="${escapeHtml(character.id)}" style="${getTypeColorStyles(character.type)}" aria-label="Abrir perfil de ${safeName}">
-      <span class="character-card-header">${safeName}</span>
-      ${imageMarkup}
-      <span class="character-card-footer">
-        <span class="meta"><strong>Tipo:</strong> <span class="character-type-pill">${escapeHtml(character.type)}</span></span>
-        <span class="meta"><strong>Clan:</strong> ${escapeHtml(character.clan)}</span>
-        <span class="stats-list" aria-label="Atributos de ${safeName}">
-          <span>Magia: ${escapeHtml(character.magic)}</span>
-          <span>Fuerza: ${escapeHtml(character.strength)}</span>
-          <span>Inteligencia: ${escapeHtml(character.intelligence)}</span>
-          <span>Velocidad: ${escapeHtml(character.speed)}</span>
+      <span class="character-card-layout">
+        <span class="character-card-left">
+          <span class="character-card-header">${safeName}</span>
+          <span class="meta"><strong>Tipo:</strong> <span class="character-type-pill">${escapeHtml(character.type)}</span></span>
+          <span class="stats-list" aria-label="Atributos de ${safeName}">
+            <span><strong>F</strong>: ${escapeHtml(character.strength)}</span>
+            <span><strong>I</strong>: ${escapeHtml(character.intelligence)}</span>
+            <span><strong>V</strong>: ${escapeHtml(character.speed)}</span>
+            <span><strong>M</strong>: ${escapeHtml(character.magic)}</span>
+          </span>
+          <span class="character-card-cta">Ver perfil y editar</span>
         </span>
-        <span class="character-card-cta">Ver perfil y editar</span>
+        <span class="character-card-right">${imageMarkup}</span>
       </span>
     </button>
   `;
@@ -327,6 +330,13 @@ function renderDeckBuilder() {
   }
 
   const hasSavedDeck = savedDeck.characterIds.length === 20;
+  const hasBlockingBattle = currentUserId
+    && (battleSessions.some((session) => (session.players || []).includes(currentUserId) && session.status === 'active')
+      || pendingChallenges.some((challenge) => (
+        challenge?.status === 'pending'
+        && (challenge?.fromUid === currentUserId || challenge?.toUid === currentUserId)
+      )));
+  const canEditDeck = !hasBlockingBattle;
   const availableCharacters = hasSavedDeck
     ? characters.filter((character) => savedDeck.characterIds.includes(character.id))
     : characters;
@@ -341,6 +351,10 @@ function renderDeckBuilder() {
         : 'Selecciona 20 personajes para tu mazo principal.'}
     </p>
     <div class="deck-count">${hasSavedDeck ? `Mazo guardado: ${savedDeck.characterIds.length}/20` : `Seleccionados: ${selectedDeckIds.length}/20`}</div>
+    <button id="edit-deck-btn" class="save-character-btn" type="button" ${canEditDeck ? '' : 'disabled'}>
+      Editar Mazo
+    </button>
+    ${canEditDeck ? '' : '<p class="deck-lock-note">No puedes editar el mazo mientras haya batallas pendientes o en curso.</p>'}
     ${(!hasSavedDeck && selectedDeckIds.length === 20) ? '<button id="save-deck-btn" class="save-character-btn" type="button">Guardar Mazo</button>' : ''}
     <section class="deck-grid">
       ${availableCharacters.map((character) => {
@@ -365,6 +379,17 @@ function renderDeckBuilder() {
   const saveDeckBtn = document.querySelector('#save-deck-btn');
   if (saveDeckBtn) {
     saveDeckBtn.addEventListener('click', saveDeck);
+  }
+
+  const editDeckBtn = document.querySelector('#edit-deck-btn');
+  if (editDeckBtn) {
+    editDeckBtn.addEventListener('click', () => {
+      if (!canEditDeck) return;
+      savedDeck = { characterIds: [], mainIds: [] };
+      selectedDeckIds = [];
+      deckOrder = [];
+      renderDeckBuilder();
+    });
   }
 }
 
@@ -1199,6 +1224,7 @@ onlineUsersRef.on('value', (snapshot) => {
 
 battleChallengesRef.on('value', (snapshot) => {
   if (!currentUserId) return;
+  pendingChallenges = Object.values(snapshot.val() || {});
   const challengeData = snapshot.child(currentUserId).val();
   if (challengeData && challengeData.status === 'pending') {
     showChallengeModal(challengeData);
@@ -1208,6 +1234,7 @@ battleChallengesRef.on('value', (snapshot) => {
   if (!challengeData && activeChallenge) {
     hideChallengeModal();
   }
+  renderDeckBuilder();
 });
 
 charactersRef.on(
@@ -1264,6 +1291,27 @@ function hideAttributePicker() {
 }
 
 document.addEventListener('click', (event) => {
+  const deckCard = event.target.closest('[data-deck-character-id]');
+  if (deckCard && currentUserId) {
+    const characterId = deckCard.dataset.deckCharacterId;
+    const hasSavedDeck = savedDeck.characterIds.length === 20;
+    if (hasSavedDeck) {
+      toggleMainCharacter(characterId).catch((error) => console.error('No se pudo actualizar personaje principal:', error));
+      return;
+    }
+
+    const isSelected = selectedDeckIds.includes(characterId);
+    if (isSelected) {
+      selectedDeckIds = selectedDeckIds.filter((id) => id !== characterId);
+      deckOrder = deckOrder.filter((id) => id !== characterId);
+    } else if (selectedDeckIds.length < 20) {
+      selectedDeckIds.push(characterId);
+      deckOrder.push(characterId);
+    }
+    renderDeckBuilder();
+    return;
+  }
+
   const attributeButton = event.target.closest('[data-battle-attribute]');
   if (attributeButton && pendingAttributePick) {
     pendingAttributePick.onPick(attributeButton.dataset.battleAttribute);
@@ -1364,12 +1412,14 @@ battleArenaCloseButton.addEventListener('click', () => {
 battleSessionsRef.on('value', (snapshot) => {
   if (!currentUserId) return;
   const sessions = snapshot.val() || {};
+  battleSessions = Object.values(sessions);
   const current = Object.values(sessions).find((session) => (session.players || []).includes(currentUserId) && session.status === 'active');
   if (!current) {
     activeBattleSession = null;
     battleArenaDismissed = false;
     battleArenaModal.classList.add('hidden');
     renderOnlineUsers();
+    renderDeckBuilder();
     return;
   }
   const previousBattleId = activeBattleSession?.id;
@@ -1397,6 +1447,7 @@ battleSessionsRef.on('value', (snapshot) => {
     }
   }
   renderOnlineUsers();
+  renderDeckBuilder();
 });
 
 
