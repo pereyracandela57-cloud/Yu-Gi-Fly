@@ -843,8 +843,10 @@ function renderBattleArena() {
   }).join('') || '<p>No tienes cartas en mano.</p>';
 
   const renderSlots = (ownerUid, slotsContainer, isPlayer) => {
-    const slots = session.fieldSlots || [];
-    slotsContainer.innerHTML = slots.filter((slot) => slot.ownerUid === ownerUid).map((slot) => {
+    const slots = (session.fieldSlots || [])
+      .filter((slot) => slot.ownerUid === ownerUid)
+      .slice(0, 5);
+    slotsContainer.innerHTML = slots.map((slot) => {
       const card = slot.cardId ? characters.find((entry) => entry.id === slot.cardId) : null;
       const hiddenForOpponent = slot.faceDown && !isPlayer;
       const canPlace = isPlayer && !slot.cardId && Boolean(selectedHandCardId) && Boolean(pendingPlacementMode);
