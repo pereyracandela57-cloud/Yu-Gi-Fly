@@ -140,14 +140,13 @@ let activeChallenge = null;
 let activeBattleSession = null;
 let battleSessions = [];
 let pendingChallenges = [];
-let battleArenaDismissed = false;
+let battleArenaDismissed = true;
 let surrenderInFlightUserId = null;
 let selectedHandCardId = null;
 let pendingPlacementMode = null;
 let pendingAttack = null;
 const shownSurrenderVictoryBySessionId = new Set();
 const previousBattleStatusBySessionId = {};
-let hasInitializedBattleSessions = false;
 
 buttons.forEach((button) => {
   button.addEventListener('click', () => {
@@ -419,7 +418,8 @@ function renderOnlineUsers() {
 
   battleUsersList.innerHTML = authenticatedUsers
     .map((user) => {
-      const hasOpenBattle = Boolean(getOpenBattleWithUser(user.uid));
+      const openBattle = getOpenBattleWithUser(user.uid);
+      const hasOpenBattle = Boolean(openBattle);
       const isOnline = Boolean(onlineUsers[user.uid]);
       const isSurrendering = surrenderInFlightUserId === user.uid;
       const hasPendingOutgoingChallenge = pendingChallenges.some((challenge) => (
@@ -427,13 +427,15 @@ function renderOnlineUsers() {
         && challenge?.fromUid === currentUserId
         && challenge?.toUid === user.uid
       ));
+      const actionLabel = hasOpenBattle ? 'Abrir Batalla' : (hasPendingOutgoingChallenge ? 'Esperando Respuesta' : 'Retar a batalla');
+      const isActionDisabled = !hasOpenBattle && hasPendingOutgoingChallenge;
       return `
       <article class="battle-user-card">
         <p class="battle-user-name">${escapeHtml(user.name || 'Usuario sin nombre')}</p>
         <p class="battle-user-status">${isOnline ? 'En línea' : 'Desconectado'}</p>
         <div class="battle-user-actions">
-          <button class="save-character-btn challenge-user-btn" type="button" data-challenge-user-id="${escapeHtml(user.uid)}" data-challenge-user-name="${escapeHtml(user.name || 'Usuario')}" ${hasPendingOutgoingChallenge ? 'disabled' : ''}>
-            ${hasPendingOutgoingChallenge ? 'Esperando Respuesta' : 'Retar a batalla'}
+          <button class="save-character-btn challenge-user-btn" type="button" data-challenge-user-id="${escapeHtml(user.uid)}" data-challenge-user-name="${escapeHtml(user.name || 'Usuario')}" ${isActionDisabled ? 'disabled' : ''}>
+            ${actionLabel}
           </button>
           ${hasOpenBattle ? `<button class="cancel-character-btn surrender-battle-btn" type="button" data-surrender-user-id="${escapeHtml(user.uid)}" ${isSurrendering ? 'disabled' : ''}>${isSurrendering ? 'Procesando...' : 'Rendirse'}</button>` : ''}
         </div>
@@ -470,11 +472,13 @@ async function surrenderBattleAgainst(targetUserId) {
 }
 
 function getOpenBattleWithUser(targetUserId) {
-  if (!activeBattleSession || !currentUserId || !targetUserId) return null;
-  const players = getBattlePlayers(activeBattleSession);
-  const includesMe = players.includes(currentUserId);
-  const includesTarget = players.includes(targetUserId);
-  return includesMe && includesTarget && activeBattleSession.status === 'active' ? activeBattleSession : null;
+  if (!currentUserId || !targetUserId) return null;
+  return battleSessions.find((session) => {
+    const players = getBattlePlayers(session);
+    const includesMe = players.includes(currentUserId);
+    const includesTarget = players.includes(targetUserId);
+    return includesMe && includesTarget && session.status === 'active';
+  }) || null;
 }
 
 
@@ -1314,7 +1318,6 @@ function toggleAuthenticatedUi(user) {
   if (!isLogged) {
     const previousUserId = currentUserId;
     currentUserId = null;
-    hasInitializedBattleSessions = false;
     savedDeck = { characterIds: [], mainIds: [] };
     selectedDeckIds = [];
     deckOrder = [];
@@ -1330,7 +1333,7 @@ function toggleAuthenticatedUi(user) {
   }
 
   currentUserId = user.uid;
-  hasInitializedBattleSessions = false;
+  battleArenaDismissed = true;
 
   userName.textContent = user.displayName || 'Usuario sin nombre';
   userUid.textContent = `UID: ${user.uid}`;
@@ -1501,10 +1504,26 @@ document.addEventListener('click', (event) => {
 
   const challengeButton = event.target.closest('[data-challenge-user-id]');
   if (challengeButton) {
-    sendBattleChallenge(
-      challengeButton.dataset.challengeUserId,
-      challengeButton.dataset.challengeUserName,
-    ).catch((error) => console.error('No se pudo enviar el desafío:', error));
+    const challengedUid = challengeButton.dataset.challengeUserId;
+    const challengedName = challengeButton.dataset.challengeUserName || 'Usuario';
+    if (!challengedUid || !currentUserId || challengedUid === currentUserId) return;
+
+    const existingBattle = getOpenBattleWithUser(challengedUid);
+    if (existingBattle) {
+      activeBattleSession = existingBattle;
+      battleArenaDismissed = false;
+      renderBattleArena();
+      return;
+    }
+
+    const hasDeckReady = savedDeck.characterIds.length === 20;
+    if (!hasDeckReady) {
+      window.alert('Debes guardar un mazo de 20 personajes antes de retar.');
+      return;
+    }
+
+    sendBattleChallenge(challengedUid, challengedName)
+      .catch((error) => console.error('No se pudo enviar el desafío:', error));
     return;
   }
 
@@ -1622,15 +1641,13 @@ battleSessionsRef.on('value', (snapshot) => {
   });
   const previousBattleId = activeBattleSession?.id;
   activeBattleSession = current;
-  if (!hasInitializedBattleSessions) {
-    battleArenaDismissed = true;
-    hasInitializedBattleSessions = true;
-  }
   if (previousBattleId !== current.id) {
-    battleArenaDismissed = false;
+    battleArenaDismissed = true;
   }
   if (!battleArenaDismissed) {
     renderBattleArena();
+  } else {
+    battleArenaModal.classList.add('hidden');
   }
   const pendingDefenseData = current.pendingDefense;
   if (pendingDefenseData?.defenderUid === currentUserId) {
