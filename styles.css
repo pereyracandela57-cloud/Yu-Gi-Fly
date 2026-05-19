@@ -847,6 +847,12 @@ body::before {
   font-size: 1.05rem;
 }
 
+.battle-user-status {
+  margin: 0.25rem 0 0;
+  font-size: 0.82rem;
+  opacity: 0.82;
+}
+
 .challenge-modal {
   position: fixed;
   inset: 0;
