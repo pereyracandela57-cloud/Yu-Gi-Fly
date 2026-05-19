@@ -140,6 +140,7 @@ let activeBattleSession = null;
 let battleSessions = [];
 let pendingChallenges = [];
 let battleArenaDismissed = false;
+let surrenderInFlightUserId = null;
 let selectedHandCardId = null;
 let pendingPlacementMode = null;
 let pendingAttack = null;
@@ -424,9 +425,9 @@ function renderOnlineUsers() {
         <p class="battle-user-status">${isOnline ? 'En línea' : 'Desconectado'}</p>
         <div class="battle-user-actions">
           <button class="save-character-btn challenge-user-btn" type="button" data-challenge-user-id="${escapeHtml(user.uid)}" data-challenge-user-name="${escapeHtml(user.name || 'Usuario')}">
-            ${hasOpenBattle ? 'Reabrir batalla' : 'Retar a batalla'}
+            Retar a batalla
           </button>
-          ${hasOpenBattle ? `<button class="cancel-character-btn surrender-battle-btn" type="button" data-surrender-user-id="${escapeHtml(user.uid)}">Rendirse</button>` : ''}
+          ${hasOpenBattle ? `<button class="cancel-character-btn surrender-battle-btn" type="button" data-surrender-user-id="${escapeHtml(user.uid)}" ${isSurrendering ? 'disabled' : ''}>${isSurrendering ? 'Procesando...' : 'Rendirse'}</button>` : ''}
         </div>
       </article>
     `;
@@ -435,18 +436,26 @@ function renderOnlineUsers() {
 }
 
 async function surrenderBattleAgainst(targetUserId) {
+  if (surrenderInFlightUserId) return;
   const session = getOpenBattleWithUser(targetUserId);
   if (!session || !currentUserId) return;
   const opponentUid = (session.players || []).find((uid) => uid !== currentUserId);
   if (!opponentUid) return;
 
-  await battleSessionsRef.child(session.id).update({
-    status: 'finished',
-    winnerUid: opponentUid,
-    loserUid: currentUserId,
-    endedAt: getTimestamp(),
-    updatedAt: getTimestamp(),
-  });
+  surrenderInFlightUserId = targetUserId;
+  renderOnlineUsers();
+  try {
+    await battleSessionsRef.child(session.id).update({
+      status: 'finished',
+      winnerUid: opponentUid,
+      loserUid: currentUserId,
+      endedAt: getTimestamp(),
+      updatedAt: getTimestamp(),
+    });
+    renderOnlineUsers();
+  } finally {
+    surrenderInFlightUserId = null;
+  }
 
   battleArenaDismissed = false;
   setSyncStatus('Te rendiste. La batalla fue otorgada al contrincante.', 'success');
