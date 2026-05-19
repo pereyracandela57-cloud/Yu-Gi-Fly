@@ -15,6 +15,7 @@ const auth = firebase.auth();
 const googleProvider = new firebase.auth.GoogleAuthProvider();
 const charactersRef = database.ref('characters');
 const userDecksRef = database.ref('userDecks');
+const usersRef = database.ref('users');
 const onlineUsersRef = database.ref('onlineUsers');
 const battleChallengesRef = database.ref('battleChallenges');
 const battleSessionsRef = database.ref('battleSessions');
@@ -130,6 +131,7 @@ let selectedDeckIds = [];
 let deckOrder = [];
 let savedDeck = { characterIds: [], mainIds: [] };
 let onlineUsers = {};
+let users = {};
 let activeChallenge = null;
 let activeBattleSession = null;
 let battleArenaDismissed = false;
@@ -372,22 +374,24 @@ function renderOnlineUsers() {
   if (!battleUsersList) return;
 
   if (!currentUserId) {
-    battleUsersList.innerHTML = '<p>Inicia sesión para ver usuarios conectados.</p>';
+    battleUsersList.innerHTML = '<p>Inicia sesión para ver perfiles autenticados.</p>';
     return;
   }
 
-  const users = Object.values(onlineUsers).filter((entry) => entry.uid !== currentUserId);
-  if (!users.length) {
-    battleUsersList.innerHTML = '<p>No hay otros usuarios conectados en este momento.</p>';
+  const authenticatedUsers = Object.values(users).filter((entry) => entry.uid !== currentUserId);
+  if (!authenticatedUsers.length) {
+    battleUsersList.innerHTML = '<p>No hay otros perfiles autenticados disponibles por ahora.</p>';
     return;
   }
 
-  battleUsersList.innerHTML = users
+  battleUsersList.innerHTML = authenticatedUsers
     .map((user) => {
       const hasOpenBattle = Boolean(getOpenBattleWithUser(user.uid));
+      const isOnline = Boolean(onlineUsers[user.uid]);
       return `
       <article class="battle-user-card">
         <p class="battle-user-name">${escapeHtml(user.name || 'Usuario sin nombre')}</p>
+        <p class="battle-user-status">${isOnline ? 'En línea' : 'Desconectado'}</p>
         <div class="battle-user-actions">
           <button class="save-character-btn challenge-user-btn" type="button" data-challenge-user-id="${escapeHtml(user.uid)}" data-challenge-user-name="${escapeHtml(user.name || 'Usuario')}">
             ${hasOpenBattle ? 'Reabrir batalla' : 'Retar a batalla'}
@@ -1157,6 +1161,14 @@ function toggleAuthenticatedUi(user) {
   }
 
   const presenceRef = onlineUsersRef.child(user.uid);
+  usersRef.child(user.uid).update({
+    uid: user.uid,
+    name: user.displayName || 'Usuario sin nombre',
+    photoURL: user.photoURL || '',
+    lastSeen: getTimestamp(),
+  }).catch((error) => {
+    console.error('No se pudo actualizar el perfil del usuario:', error);
+  });
   const connectedRef = database.ref('.info/connected');
   connectedRef.on('value', (snapshot) => {
     if (snapshot.val() !== true) return;
@@ -1194,6 +1206,11 @@ setSyncStatus('Conectando con Firebase...', 'loading');
 
 onlineUsersRef.on('value', (snapshot) => {
   onlineUsers = snapshot.val() || {};
+  renderOnlineUsers();
+});
+
+usersRef.on('value', (snapshot) => {
+  users = snapshot.val() || {};
   renderOnlineUsers();
 });
 
