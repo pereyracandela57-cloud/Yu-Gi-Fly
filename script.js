@@ -133,6 +133,7 @@ let onlineUsers = {};
 let activeChallenge = null;
 let activeBattleSession = null;
 let battleArenaDismissed = false;
+let surrenderInFlightUserId = null;
 let selectedHandCardId = null;
 let pendingPlacementMode = null;
 let pendingAttack = null;
@@ -385,14 +386,15 @@ function renderOnlineUsers() {
   battleUsersList.innerHTML = users
     .map((user) => {
       const hasOpenBattle = Boolean(getOpenBattleWithUser(user.uid));
+      const isSurrendering = hasOpenBattle && surrenderInFlightUserId === user.uid;
       return `
       <article class="battle-user-card">
         <p class="battle-user-name">${escapeHtml(user.name || 'Usuario sin nombre')}</p>
         <div class="battle-user-actions">
           <button class="save-character-btn challenge-user-btn" type="button" data-challenge-user-id="${escapeHtml(user.uid)}" data-challenge-user-name="${escapeHtml(user.name || 'Usuario')}">
-            ${hasOpenBattle ? 'Reabrir batalla' : 'Retar a batalla'}
+            Retar a batalla
           </button>
-          ${hasOpenBattle ? `<button class="cancel-character-btn surrender-battle-btn" type="button" data-surrender-user-id="${escapeHtml(user.uid)}">Rendirse</button>` : ''}
+          ${hasOpenBattle ? `<button class="cancel-character-btn surrender-battle-btn" type="button" data-surrender-user-id="${escapeHtml(user.uid)}" ${isSurrendering ? 'disabled' : ''}>${isSurrendering ? 'Procesando...' : 'Rendirse'}</button>` : ''}
         </div>
       </article>
     `;
@@ -401,18 +403,26 @@ function renderOnlineUsers() {
 }
 
 async function surrenderBattleAgainst(targetUserId) {
+  if (surrenderInFlightUserId) return;
   const session = getOpenBattleWithUser(targetUserId);
   if (!session || !currentUserId) return;
   const opponentUid = (session.players || []).find((uid) => uid !== currentUserId);
   if (!opponentUid) return;
 
-  await battleSessionsRef.child(session.id).update({
-    status: 'finished',
-    winnerUid: opponentUid,
-    loserUid: currentUserId,
-    endedAt: getTimestamp(),
-    updatedAt: getTimestamp(),
-  });
+  surrenderInFlightUserId = targetUserId;
+  renderOnlineUsers();
+  try {
+    await battleSessionsRef.child(session.id).update({
+      status: 'finished',
+      winnerUid: opponentUid,
+      loserUid: currentUserId,
+      endedAt: getTimestamp(),
+      updatedAt: getTimestamp(),
+    });
+    renderOnlineUsers();
+  } finally {
+    surrenderInFlightUserId = null;
+  }
 
   battleArenaDismissed = false;
   setSyncStatus('Te rendiste. La batalla fue otorgada al contrincante.', 'success');
@@ -1264,6 +1274,24 @@ function hideAttributePicker() {
 }
 
 document.addEventListener('click', (event) => {
+  const challengeButton = event.target.closest('[data-challenge-user-id]');
+  if (challengeButton) {
+    sendBattleChallenge(challengeButton.dataset.challengeUserId, challengeButton.dataset.challengeUserName).catch((error) => {
+      console.error('No se pudo enviar el desafío:', error);
+    });
+    return;
+  }
+
+  const surrenderButton = event.target.closest('[data-surrender-user-id]');
+  if (surrenderButton) {
+    surrenderBattleAgainst(surrenderButton.dataset.surrenderUserId).catch((error) => {
+      console.error('No se pudo rendir la batalla:', error);
+      surrenderInFlightUserId = null;
+      renderOnlineUsers();
+    });
+    return;
+  }
+
   const attributeButton = event.target.closest('[data-battle-attribute]');
   if (attributeButton && pendingAttributePick) {
     pendingAttributePick.onPick(attributeButton.dataset.battleAttribute);
