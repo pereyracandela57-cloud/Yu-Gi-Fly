@@ -47,6 +47,9 @@ const battleCardActionModal = document.querySelector('#battle-card-action-modal'
 const battleActionPlaceButton = document.querySelector('#battle-action-place');
 const battleActionFaceDownButton = document.querySelector('#battle-action-facedown');
 const battleActionCancelButton = document.querySelector('#battle-action-cancel');
+const battleSurrenderVictoryModal = document.querySelector('#battle-surrender-victory-modal');
+const battleSurrenderVictoryText = document.querySelector('#battle-surrender-victory-text');
+const battleSurrenderVictoryCloseButton = document.querySelector('#battle-surrender-victory-close-btn');
 
 const characterTypes = [
   { type: 'Brujas', clans: ['Luna Carmesí', 'Hijas del Caldero', 'Las Espinas Negras', 'Coven Eclipse'] },
@@ -136,6 +139,8 @@ let battleArenaDismissed = false;
 let selectedHandCardId = null;
 let pendingPlacementMode = null;
 let pendingAttack = null;
+const shownSurrenderVictoryBySessionId = new Set();
+const previousBattleStatusBySessionId = {};
 
 buttons.forEach((button) => {
   button.addEventListener('click', () => {
@@ -448,6 +453,17 @@ function showChallengeModal(challengeData) {
 function hideChallengeModal() {
   activeChallenge = null;
   battleChallengeModal.classList.add('hidden');
+}
+
+function showSurrenderVictoryModal() {
+  if (battleSurrenderVictoryText) {
+    battleSurrenderVictoryText.textContent = 'FELICIDADES HAS VENCIDO! TU CONTRINCANTE SE HA RENDIDO';
+  }
+  battleSurrenderVictoryModal?.classList.remove('hidden');
+}
+
+function hideSurrenderVictoryModal() {
+  battleSurrenderVictoryModal?.classList.add('hidden');
 }
 
 async function respondToChallenge(status) {
@@ -1360,10 +1376,27 @@ battleArenaCloseButton.addEventListener('click', () => {
   battleArenaModal.classList.add('hidden');
 });
 
+battleSurrenderVictoryCloseButton?.addEventListener('click', hideSurrenderVictoryModal);
 
 battleSessionsRef.on('value', (snapshot) => {
   if (!currentUserId) return;
   const sessions = snapshot.val() || {};
+
+  Object.entries(sessions).forEach(([sessionId, sessionData]) => {
+    if (!(sessionData?.players || []).includes(currentUserId)) return;
+    const previousStatus = previousBattleStatusBySessionId[sessionId];
+    const currentStatus = sessionData.status;
+    const wonBySurrender = currentStatus === 'finished' && sessionData.winnerUid === currentUserId && Boolean(sessionData.loserUid);
+    const transitionedFromActive = previousStatus === 'active';
+
+    if (wonBySurrender && transitionedFromActive && !shownSurrenderVictoryBySessionId.has(sessionId)) {
+      shownSurrenderVictoryBySessionId.add(sessionId);
+      showSurrenderVictoryModal();
+    }
+
+    previousBattleStatusBySessionId[sessionId] = currentStatus;
+  });
+
   const current = Object.values(sessions).find((session) => (session.players || []).includes(currentUserId) && session.status === 'active');
   if (!current) {
     activeBattleSession = null;
