@@ -305,20 +305,22 @@ function renderCharacterCard(character) {
     : '<div class="character-card-image placeholder-image">Sin imagen</div>';
 
   return `
-    <button class="character-card" type="button" data-character-id="${escapeHtml(character.id)}" style="${getTypeColorStyles(character.type)}" aria-label="Abrir perfil de ${safeName}">
+    <button class="character-card character-gallery-card" type="button" data-character-id="${escapeHtml(character.id)}" style="${getTypeColorStyles(character.type)}" aria-label="Abrir perfil de ${safeName}">
       <span class="character-card-layout">
-        <span class="character-card-left">
-          <span class="character-card-header">${safeName}</span>
-          <span class="character-type-clan-tag">${escapeHtml(character.type)} · ${escapeHtml(character.clan)}</span>
+        <span class="character-card-header">${safeName}</span>
+        <span class="character-card-right">${imageMarkup}</span>
+        <span class="character-card-footer">
+          <span class="character-card-tags">
+            <span class="character-type-clan-tag">${escapeHtml(character.type)}</span>
+            <span class="character-type-clan-tag">${escapeHtml(character.clan)}</span>
+          </span>
           <span class="stats-list" aria-label="Atributos de ${safeName}">
             <span><strong>F</strong>: ${escapeHtml(character.strength)}</span>
-            <span><strong>I</strong>: ${escapeHtml(character.intelligence)}</span>
-            <span><strong>M</strong>: ${escapeHtml(character.magic)}</span>
             <span><strong>V</strong>: ${escapeHtml(character.speed)}</span>
+            <span><strong>M</strong>: ${escapeHtml(character.magic)}</span>
+            <span><strong>I</strong>: ${escapeHtml(character.intelligence)}</span>
           </span>
-          <span class="character-card-cta">Ver perfil y editar</span>
         </span>
-        <span class="character-card-right">${imageMarkup}</span>
       </span>
     </button>
   `;
