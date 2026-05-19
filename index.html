@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Crónicas del Reino</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <section class="auth-shell" aria-live="polite">
+      <div class="auth-card" id="auth-panel">
+        <h2>Inicia sesión</h2>
+        <p>Debes iniciar sesión con Google para acceder al juego.</p>
+        <button id="login-google-btn" class="auth-btn" type="button">Login con Google</button>
+      </div>
+
+      <div class="auth-user hidden" id="auth-user-panel">
+        <img id="user-photo" class="auth-avatar" alt="Foto de perfil" />
+        <div>
+          <p id="user-name" class="auth-name"></p>
+          <p id="user-uid" class="auth-uid"></p>
+        </div>
+        <button id="logout-btn" class="auth-btn" type="button">Logout</button>
+      </div>
+    </section>
+
+    <div class="layout hidden" id="game-layout">
+      <aside class="sidebar" aria-label="Menú principal">
+        <h1 class="logo">Crónicas del Reino</h1>
+        <nav class="menu">
+          <button class="menu-btn active" data-target="personajes">Personajes</button>
+          <button class="menu-btn" data-target="mazo">Mazo</button>
+          <button class="menu-btn" data-target="batallas">Batallas</button>
+          <button class="menu-btn" data-target="historia">Historia</button>
+        </nav>
+      </aside>
+
+      <main class="content" aria-live="polite">
+        <section id="personajes" class="panel active">
+          <div class="character-actions">
+            <button class="add-character-btn" type="button">Agregar personaje</button>
+            <label class="random-character-controls">
+              Cantidad (1-20)
+              <input id="random-character-quantity" type="number" min="1" max="20" value="1">
+            </label>
+            <button class="random-character-btn" type="button">Crear Aleatoriamente</button>
+          </div>
+        </section>
+
+        <section id="mazo" class="panel">
+          <h2>Mazo</h2>
+          <div id="deck-builder"></div>
+        </section>
+
+        <section id="batallas" class="panel">
+          <h2>Batallas</h2>
+          <p>Usuarios conectados para retar a batalla.</p>
+          <section id="battle-users-list" class="battle-users-list" aria-live="polite"></section>
+        </section>
+
+        <section id="historia" class="panel">
+          <h2>Historia</h2>
+          <p>
+            Descubre la crónica ancestral del reino: pactos antiguos,
+            traiciones dinásticas y leyendas escritas a fuego.
+          </p>
+        </section>
+      </main>
+    </div>
+
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+    <div id="battle-challenge-modal" class="challenge-modal hidden" role="dialog" aria-modal="true" aria-labelledby="challenge-title">
+      <div class="challenge-modal-card">
+        <h3 id="challenge-title">Desafío de batalla</h3>
+        <p id="challenge-message">Un usuario te ha retado.</p>
+        <div class="challenge-actions">
+          <button id="accept-challenge-btn" class="save-character-btn" type="button">Aceptar</button>
+          <button id="reject-challenge-btn" class="cancel-character-btn" type="button">Rechazar</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="battle-arena-modal" class="battle-arena-modal hidden" role="dialog" aria-modal="true" aria-labelledby="battle-arena-title">
+      <div class="battle-arena-card">
+        <div class="battle-arena-header">
+          <h3 id="battle-arena-title">Batalla en curso</h3>
+          <p id="battle-turn-label"></p>
+          <button id="battle-arena-close-btn" class="cancel-character-btn battle-close-btn" type="button" aria-label="Cerrar ventana de batalla">Cerrar</button>
+        </div>
+        <section class="battle-board">
+          <div>
+            <h4>Campo rival</h4>
+            <div id="battle-opponent-slots" class="battle-slots"></div>
+          </div>
+          <div>
+            <h4>Tu campo</h4>
+            <div id="battle-player-slots" class="battle-slots"></div>
+          </div>
+          <div>
+            <h4>Tu mano</h4>
+            <div id="battle-hand" class="battle-hand"></div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <div id="battle-card-action-modal" class="challenge-modal hidden" role="dialog" aria-modal="true" aria-labelledby="battle-card-action-title">
+      <div class="challenge-modal-card">
+        <h3 id="battle-card-action-title">Acción de carta</h3>
+        <p id="battle-card-action-text">¿Qué quieres hacer?</p>
+        <div class="challenge-actions">
+          <button id="battle-action-place" class="save-character-btn" type="button">COLOCAR</button>
+          <button id="battle-action-facedown" class="save-character-btn" type="button">BOCA ABAJO</button>
+          <button id="battle-action-cancel" class="cancel-character-btn" type="button">CANCELAR</button>
+        </div>
+      </div>
+    </div>
+    <script src="script.js"></script>
+  </body>
+</html>
