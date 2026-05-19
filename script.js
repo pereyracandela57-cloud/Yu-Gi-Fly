@@ -307,6 +307,7 @@ function renderSharedCharacterCard(character, options = {}) {
     tagsText = `${character.type} · ${character.clan}`,
     footerPrefix = '',
     inlineStyle = '',
+    staticCard = false,
   } = options;
 
   const safeName = escapeHtml(character.name || 'Carta');
@@ -316,8 +317,13 @@ function renderSharedCharacterCard(character, options = {}) {
     ? `<img class="character-card-image" src="${safeImage}" alt="Imagen de ${safeName}">`
     : '<div class="character-card-image placeholder-image">Sin imagen</div>';
 
+  const tagName = staticCard ? 'div' : 'button';
+  const interactiveAttributes = staticCard
+    ? ''
+    : `type="button" ${dataAttribute}="${safeDataValue}" aria-label="${escapeHtml(ariaLabel)}"`;
+
   return `
-    <button class="character-card character-gallery-card ${extraClasses}" type="button" ${dataAttribute}="${safeDataValue}" style="${getTypeColorStyles(character.type)}${inlineStyle}" aria-label="${escapeHtml(ariaLabel)}">
+    <${tagName} class="character-card character-gallery-card ${extraClasses}" ${interactiveAttributes} style="${getTypeColorStyles(character.type)}${inlineStyle}">
       ${footerPrefix}
       <span class="character-card-layout">
         <span class="character-card-header">${safeName}</span>
@@ -335,7 +341,7 @@ function renderSharedCharacterCard(character, options = {}) {
           </span>
         </span>
       </span>
-    </button>
+    </${tagName}>
   `;
 }
 
@@ -871,10 +877,8 @@ function renderBattleCharacterCard(card, { hidden = false } = {}) {
     return '<span class="battle-slot-empty">Carta</span>';
   }
   return renderSharedCharacterCard(card, {
-    dataAttribute: 'data-battle-field-id',
-    dataValue: card.id,
     extraClasses: 'battle-field-card character-size-compact',
-    ariaLabel: `Carta en campo ${card.name}`,
+    staticCard: true,
   });
 }
 
