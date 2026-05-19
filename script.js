@@ -52,6 +52,7 @@ const battleActionCancelButton = document.querySelector('#battle-action-cancel')
 const battleSurrenderVictoryModal = document.querySelector('#battle-surrender-victory-modal');
 const battleSurrenderVictoryText = document.querySelector('#battle-surrender-victory-text');
 const battleSurrenderVictoryCloseButton = document.querySelector('#battle-surrender-victory-close-btn');
+const battleHistoryList = document.querySelector('#battle-history-list');
 
 const characterTypes = [
   { type: 'Brujas', clans: ['Luna Carmesí', 'Hijas del Caldero', 'Las Espinas Negras', 'Coven Eclipse'] },
@@ -145,6 +146,7 @@ let surrenderInFlightUserId = null;
 let selectedHandCardId = null;
 let pendingPlacementMode = null;
 let pendingAttack = null;
+let battleHistoryByOpponent = {};
 const shownSurrenderVictoryBySessionId = new Set();
 const previousBattleStatusBySessionId = {};
 
@@ -441,6 +443,42 @@ function renderOnlineUsers() {
         </div>
       </article>
     `;
+    })
+    .join('');
+}
+
+function renderBattleHistory() {
+  if (!battleHistoryList) return;
+  if (!currentUserId) {
+    battleHistoryList.innerHTML = '<p>Inicia sesión para ver tu historial.</p>';
+    return;
+  }
+
+  const historyEntries = Object.entries(battleHistoryByOpponent)
+    .map(([opponentUid, summary]) => ({ opponentUid, ...(summary || {}) }))
+    .sort((a, b) => (b.battles || 0) - (a.battles || 0));
+
+  if (!historyEntries.length) {
+    battleHistoryList.innerHTML = '<p>Aún no tienes batallas registradas.</p>';
+    return;
+  }
+
+  battleHistoryList.innerHTML = historyEntries
+    .map((entry) => {
+      const opponent = users[entry.opponentUid] || {};
+      return `
+        <article class="battle-history-card">
+          <div>
+            <p class="battle-user-name">${escapeHtml(opponent.name || 'Usuario desconocido')}</p>
+            <p class="battle-user-status">UID: ${escapeHtml(entry.opponentUid)}</p>
+          </div>
+          <p class="battle-history-stats">
+            Batallas: <strong>${entry.battles || 0}</strong> ·
+            Victorias: <strong>${entry.wins || 0}</strong> ·
+            Derrotas: <strong>${entry.losses || 0}</strong>
+          </p>
+        </article>
+      `;
     })
     .join('');
 }
@@ -1329,6 +1367,8 @@ function toggleAuthenticatedUi(user) {
     }
     onlineUsers = {};
     renderOnlineUsers();
+    battleHistoryByOpponent = {};
+    renderBattleHistory();
     return;
   }
 
@@ -1370,11 +1410,13 @@ logoutButton.addEventListener('click', logout);
 auth.onAuthStateChanged((user) => {
   toggleAuthenticatedUi(user);
   if (user) {
+    renderBattleHistory();
     loadDeckForUser(user.uid).catch((error) => {
       console.error('No se pudo cargar el mazo del usuario:', error);
     });
   } else {
     renderDeckBuilder();
+    renderBattleHistory();
   }
 });
 
@@ -1385,6 +1427,7 @@ createCharacterForm();
 renderGallery();
 renderDeckBuilder();
 renderOnlineUsers();
+renderBattleHistory();
 setSyncStatus('Conectando con Firebase...', 'loading');
 
 onlineUsersRef.on('value', (snapshot) => {
@@ -1395,6 +1438,13 @@ onlineUsersRef.on('value', (snapshot) => {
 usersRef.on('value', (snapshot) => {
   users = snapshot.val() || {};
   renderOnlineUsers();
+  renderBattleHistory();
+});
+
+battleHistoryRef.on('value', (snapshot) => {
+  if (!currentUserId) return;
+  battleHistoryByOpponent = snapshot.child(currentUserId).val() || {};
+  renderBattleHistory();
 });
 
 battleChallengesRef.on('value', (snapshot) => {

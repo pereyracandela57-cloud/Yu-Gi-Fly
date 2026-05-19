@@ -831,6 +831,12 @@ body::before {
   gap: 0.8rem;
 }
 
+.battle-history-list {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.8rem;
+}
+
 .battle-user-card {
   display: flex;
   justify-content: space-between;
@@ -840,6 +846,23 @@ body::before {
   border: 1px solid rgba(224, 183, 98, 0.45);
   border-radius: 10px;
   background: rgba(20, 16, 12, 0.65);
+}
+
+.battle-history-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.8rem;
+  border: 1px solid rgba(224, 183, 98, 0.45);
+  border-radius: 10px;
+  background: rgba(20, 16, 12, 0.65);
+}
+
+.battle-history-stats {
+  margin: 0;
+  font-size: 0.95rem;
+  opacity: 0.9;
 }
 
 .battle-user-name {
