@@ -497,13 +497,17 @@ async function registerBattleOutcome(session) {
 
   await Promise.all([
     winnerVsLoserRef.transaction((currentValue) => ({
+      battles: (currentValue?.battles || 0) + 1,
       wins: (currentValue?.wins || 0) + 1,
       losses: currentValue?.losses || 0,
+      createdAt: currentValue?.createdAt || getTimestamp(),
       updatedAt: getTimestamp(),
     })),
     loserVsWinnerRef.transaction((currentValue) => ({
+      battles: (currentValue?.battles || 0) + 1,
       wins: currentValue?.wins || 0,
       losses: (currentValue?.losses || 0) + 1,
+      createdAt: currentValue?.createdAt || getTimestamp(),
       updatedAt: getTimestamp(),
     })),
     usersRef.child(session.winnerUid).child('battleSummary').transaction((currentValue) => ({
@@ -515,6 +519,27 @@ async function registerBattleOutcome(session) {
       wins: currentValue?.wins || 0,
       losses: (currentValue?.losses || 0) + 1,
       updatedAt: getTimestamp(),
+    })),
+  ]);
+}
+
+async function ensureBattleHistoryPair(userAUid, userBUid) {
+  if (!userAUid || !userBUid || userAUid === userBUid) return;
+  const now = getTimestamp();
+  await Promise.all([
+    battleHistoryRef.child(userAUid).child(userBUid).transaction((currentValue) => ({
+      battles: currentValue?.battles || 0,
+      wins: currentValue?.wins || 0,
+      losses: currentValue?.losses || 0,
+      createdAt: currentValue?.createdAt || now,
+      updatedAt: now,
+    })),
+    battleHistoryRef.child(userBUid).child(userAUid).transaction((currentValue) => ({
+      battles: currentValue?.battles || 0,
+      wins: currentValue?.wins || 0,
+      losses: currentValue?.losses || 0,
+      createdAt: currentValue?.createdAt || now,
+      updatedAt: now,
     })),
   ]);
 }
@@ -812,6 +837,8 @@ async function createBattleSessionForChallenge(challengeData) {
     ...Array.from({ length: 5 }, (_, i) => ({ id: `player-${i + 1}`, ownerUid: challengeData.toUid, cardId: '', faceDown: false })),
   ];
 
+  await ensureBattleHistoryPair(challengeData.fromUid, challengeData.toUid);
+
   await battleSessionsRef.child(id).set({
     id,
     status: 'active',
@@ -826,6 +853,35 @@ async function createBattleSessionForChallenge(challengeData) {
     updatedAt: getTimestamp(),
   });
   return id;
+}
+
+function playerHasNoRemainingCards(session, uid) {
+  const state = getPlayerState(session, uid);
+  const hasHandCards = (state.hand || []).length > 0;
+  const hasDeckCards = (state.deck || []).length > 0;
+  const hasFieldCards = (session.fieldSlots || []).some((slot) => slot.ownerUid === uid && slot.cardId);
+  return !hasHandCards && !hasDeckCards && !hasFieldCards;
+}
+
+async function finishBattleIfPlayerOutOfCards(session) {
+  if (!session?.id || session.status !== 'active') return false;
+  const players = getBattlePlayers(session);
+  if (players.length !== 2) return false;
+  const [playerAUid, playerBUid] = players;
+  const playerAOut = playerHasNoRemainingCards(session, playerAUid);
+  const playerBOut = playerHasNoRemainingCards(session, playerBUid);
+  if (!playerAOut && !playerBOut) return false;
+
+  const loserUid = playerAOut ? playerAUid : playerBUid;
+  const winnerUid = loserUid === playerAUid ? playerBUid : playerAUid;
+  await battleSessionsRef.child(session.id).update({
+    status: 'finished',
+    winnerUid,
+    loserUid,
+    endedAt: getTimestamp(),
+    updatedAt: getTimestamp(),
+  });
+  return true;
 }
 
 function closeProfile() {
@@ -1561,6 +1617,9 @@ battleSessionsRef.on('value', (snapshot) => {
     renderDeckBuilder();
     return;
   }
+  finishBattleIfPlayerOutOfCards(current).catch((error) => {
+    console.error('No se pudo finalizar la batalla por falta de cartas:', error);
+  });
   const previousBattleId = activeBattleSession?.id;
   activeBattleSession = current;
   if (!hasInitializedBattleSessions) {
