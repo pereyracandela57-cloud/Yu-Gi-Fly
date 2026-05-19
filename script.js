@@ -135,6 +135,7 @@ let activeBattleSession = null;
 let battleArenaDismissed = false;
 let selectedHandCardId = null;
 let pendingPlacementMode = null;
+let pendingAttack = null;
 
 buttons.forEach((button) => {
   button.addEventListener('click', () => {
@@ -1235,7 +1236,6 @@ document.addEventListener('click', (event) => {
   const faceDown = pendingPlacementMode === 'facedown';
   const slotId = targetSlot.dataset.battleSlotId;
   const session = activeBattleSession;
-  const slotId = targetSlot.dataset.battleSlotId;
   const clickedSlot = (session.fieldSlots || []).find((slot) => slot.id === slotId);
   if (!clickedSlot) return;
 
