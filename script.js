@@ -1622,6 +1622,7 @@ document.addEventListener('click', (event) => {
 
   if (!clickedSlot.cardId) {
     if (!selectedHandCardId || !pendingPlacementMode) return;
+    if (clickedSlot.ownerUid !== currentUserId) return;
     const myState = getPlayerState(session, currentUserId);
     if (!myState.hand.includes(selectedHandCardId)) return;
     const faceDown = pendingPlacementMode === 'facedown';
