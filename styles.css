@@ -440,7 +440,8 @@ body::before {
     inset 0 -12px 22px rgba(0, 0, 0, 0.28);
 }
 
-.character-type-pill {
+.character-type-pill,
+.character-type-clan-tag {
   display: inline-block;
   padding: 0.12rem 0.5rem;
   border: 1px solid rgba(255, 255, 255, 0.42);
@@ -458,6 +459,7 @@ body::before {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.35rem 0.8rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .meta {
@@ -999,7 +1001,8 @@ body::before {
 
 .battle-mini-name { padding: 0.4rem; font-weight: 700; text-align: center; background: rgba(0,0,0,.4);} 
 .battle-mini-image { width: 100%; height: 150px; object-fit: cover; }
-.battle-mini-meta, .battle-mini-stats { font-size: .78rem; padding: .25rem .35rem; background: rgba(0,0,0,.35);} 
+.battle-mini-meta, .battle-mini-stats { font-size: .78rem; padding: .25rem .35rem; background: rgba(0,0,0,.35);}
+.battle-mini-meta .character-type-clan-tag { font-size: .72rem; }
 .battle-facedown-plate {
   display: grid;
   place-items: center;

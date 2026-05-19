@@ -309,12 +309,12 @@ function renderCharacterCard(character) {
       <span class="character-card-layout">
         <span class="character-card-left">
           <span class="character-card-header">${safeName}</span>
-          <span class="meta"><strong>Tipo:</strong> <span class="character-type-pill">${escapeHtml(character.type)}</span></span>
+          <span class="character-type-clan-tag">${escapeHtml(character.type)} · ${escapeHtml(character.clan)}</span>
           <span class="stats-list" aria-label="Atributos de ${safeName}">
             <span><strong>F</strong>: ${escapeHtml(character.strength)}</span>
             <span><strong>I</strong>: ${escapeHtml(character.intelligence)}</span>
-            <span><strong>V</strong>: ${escapeHtml(character.speed)}</span>
             <span><strong>M</strong>: ${escapeHtml(character.magic)}</span>
+            <span><strong>V</strong>: ${escapeHtml(character.speed)}</span>
           </span>
           <span class="character-card-cta">Ver perfil y editar</span>
         </span>
@@ -378,8 +378,13 @@ function renderDeckBuilder() {
             ${isMain ? '<span class="main-badge">Principal</span>' : ''}
             <span class="character-card-header">${escapeHtml(character.name)}</span>
             <span class="character-card-footer">
-              <span class="meta"><strong>Tipo:</strong> <span class="character-type-pill">${escapeHtml(character.type)}</span></span>
-              <span class="meta"><strong>Clan:</strong> ${escapeHtml(character.clan)}</span>
+              <span class="character-type-clan-tag">${escapeHtml(character.type)} · ${escapeHtml(character.clan)}</span>
+              <span class="stats-list" aria-label="Atributos de ${escapeHtml(character.name)}">
+                <span><strong>F</strong>: ${escapeHtml(character.strength)}</span>
+                <span><strong>I</strong>: ${escapeHtml(character.intelligence)}</span>
+                <span><strong>M</strong>: ${escapeHtml(character.magic)}</span>
+                <span><strong>V</strong>: ${escapeHtml(character.speed)}</span>
+              </span>
             </span>
           </button>
         `;
@@ -812,7 +817,15 @@ function renderBattleArena() {
     const selectedClass = selectedHandCardId === cardId ? 'is-picked' : '';
     return `<button class="character-card deck-card battle-hand-card ${selectedClass}" type="button" data-battle-hand-id="${escapeHtml(cardId)}">
       <span class="character-card-header">${escapeHtml(card?.name || 'Carta')}</span>
-      <span class="character-card-footer"><span class="meta">${escapeHtml(card?.type || '')}</span></span>
+      <span class="character-card-footer">
+        <span class="character-type-clan-tag">${escapeHtml(card?.type || '')} · ${escapeHtml(card?.clan || '')}</span>
+        <span class="stats-list">
+          <span><strong>F</strong>: ${escapeHtml(getEffectiveStatValue(activeBattleSession, cardId, 'strength') || 0)}</span>
+          <span><strong>I</strong>: ${escapeHtml(getEffectiveStatValue(activeBattleSession, cardId, 'intelligence') || 0)}</span>
+          <span><strong>M</strong>: ${escapeHtml(getEffectiveStatValue(activeBattleSession, cardId, 'magic') || 0)}</span>
+          <span><strong>V</strong>: ${escapeHtml(getEffectiveStatValue(activeBattleSession, cardId, 'speed') || 0)}</span>
+        </span>
+      </span>
     </button>`;
   }).join('') || '<p>No tienes cartas en mano.</p>';
 
@@ -846,8 +859,8 @@ function renderBattleCharacterCard(card, { hidden = false } = {}) {
     <span class="battle-mini-card" style="${getTypeColorStyles(card.type)}">
       <span class="battle-mini-name">${escapeHtml(card.name)}</span>
       ${card.image ? `<img class="battle-mini-image" src="${escapeHtml(card.image)}" alt="${escapeHtml(card.name)}">` : '<span class="battle-mini-image placeholder-image">Sin imagen</span>'}
-      <span class="battle-mini-meta">${escapeHtml(card.type)} · ${escapeHtml(card.clan)}</span>
-      <span class="battle-mini-stats">M ${escapeHtml(getEffectiveStatValue(activeBattleSession, card.id, 'magic'))} | F ${escapeHtml(getEffectiveStatValue(activeBattleSession, card.id, 'strength'))} | I ${escapeHtml(getEffectiveStatValue(activeBattleSession, card.id, 'intelligence'))} | V ${escapeHtml(getEffectiveStatValue(activeBattleSession, card.id, 'speed'))}</span>
+      <span class="battle-mini-meta"><span class="character-type-clan-tag">${escapeHtml(card.type)} · ${escapeHtml(card.clan)}</span></span>
+      <span class="battle-mini-stats">F: ${escapeHtml(getEffectiveStatValue(activeBattleSession, card.id, 'strength'))} | I: ${escapeHtml(getEffectiveStatValue(activeBattleSession, card.id, 'intelligence'))} | M: ${escapeHtml(getEffectiveStatValue(activeBattleSession, card.id, 'magic'))} | V: ${escapeHtml(getEffectiveStatValue(activeBattleSession, card.id, 'speed'))}</span>
     </span>
   `;
 }
