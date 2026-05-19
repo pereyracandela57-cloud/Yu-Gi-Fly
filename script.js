@@ -409,7 +409,7 @@ function renderOnlineUsers() {
     return;
   }
 
-  const authenticatedUsers = Object.values(users).filter((entry) => entry.uid !== currentUserId);
+  const authenticatedUsers = Object.entries(users).map(([uid, entry]) => ({ uid, ...(entry || {}) })).filter((entry) => entry.uid !== currentUserId);
   if (!authenticatedUsers.length) {
     battleUsersList.innerHTML = '<p>No hay otros perfiles autenticados disponibles por ahora.</p>';
     return;
@@ -467,6 +467,20 @@ function getOpenBattleWithUser(targetUserId) {
   const includesMe = players.includes(currentUserId);
   const includesTarget = players.includes(targetUserId);
   return includesMe && includesTarget && activeBattleSession.status === 'active' ? activeBattleSession : null;
+}
+
+
+async function cleanupFinishedBattlesForUser(userId) {
+  if (!userId) return;
+  const finishedSessions = battleSessions.filter((session) => (
+    session
+    && session.status === 'finished'
+    && (session.players || []).includes(userId)
+    && session.id
+  ));
+  if (!finishedSessions.length) return;
+
+  await Promise.all(finishedSessions.map((session) => battleSessionsRef.child(session.id).remove()));
 }
 
 async function sendBattleChallenge(targetUserId, targetUserName) {
@@ -1367,6 +1381,24 @@ document.addEventListener('click', (event) => {
     return;
   }
 
+
+  const challengeButton = event.target.closest('[data-challenge-user-id]');
+  if (challengeButton) {
+    sendBattleChallenge(
+      challengeButton.dataset.challengeUserId,
+      challengeButton.dataset.challengeUserName,
+    ).catch((error) => console.error('No se pudo enviar el desafío:', error));
+    return;
+  }
+
+  const surrenderButton = event.target.closest('[data-surrender-user-id]');
+  if (surrenderButton) {
+    surrenderBattleAgainst(surrenderButton.dataset.surrenderUserId).catch((error) => {
+      console.error('No se pudo rendir la batalla:', error);
+    });
+    return;
+  }
+
   const targetSlot = event.target.closest('[data-battle-slot-id]');
   if (!targetSlot || !activeBattleSession || !currentUserId) return;
   if (activeBattleSession.currentTurnUid !== currentUserId) return;
@@ -1456,6 +1488,9 @@ battleSessionsRef.on('value', (snapshot) => {
   if (!currentUserId) return;
   const sessions = snapshot.val() || {};
   battleSessions = Object.values(sessions);
+  cleanupFinishedBattlesForUser(currentUserId).catch((error) => {
+    console.error('No se pudieron limpiar batallas terminadas:', error);
+  });
   const current = Object.values(sessions).find((session) => (session.players || []).includes(currentUserId) && session.status === 'active');
   if (!current) {
     activeBattleSession = null;
