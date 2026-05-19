@@ -19,6 +19,7 @@ const usersRef = database.ref('users');
 const onlineUsersRef = database.ref('onlineUsers');
 const battleChallengesRef = database.ref('battleChallenges');
 const battleSessionsRef = database.ref('battleSessions');
+const battleHistoryRef = database.ref('battleHistory');
 
 const buttons = document.querySelectorAll('.menu-btn');
 const panels = document.querySelectorAll('.panel');
@@ -471,6 +472,47 @@ function getOpenBattleWithUser(targetUserId) {
 }
 
 
+
+async function registerBattleOutcome(session) {
+  if (!session?.id || session.status !== 'finished' || !session.winnerUid || !session.loserUid) return;
+
+  const markerRef = battleSessionsRef.child(session.id).child('outcomeRegisteredAt');
+  const markerResult = await markerRef.transaction((currentValue) => {
+    if (currentValue) return;
+    return getTimestamp();
+  });
+
+  if (!markerResult.committed) {
+    return;
+  }
+
+  const winnerVsLoserRef = battleHistoryRef.child(session.winnerUid).child(session.loserUid);
+  const loserVsWinnerRef = battleHistoryRef.child(session.loserUid).child(session.winnerUid);
+
+  await Promise.all([
+    winnerVsLoserRef.transaction((currentValue) => ({
+      wins: (currentValue?.wins || 0) + 1,
+      losses: currentValue?.losses || 0,
+      updatedAt: getTimestamp(),
+    })),
+    loserVsWinnerRef.transaction((currentValue) => ({
+      wins: currentValue?.wins || 0,
+      losses: (currentValue?.losses || 0) + 1,
+      updatedAt: getTimestamp(),
+    })),
+    usersRef.child(session.winnerUid).child('battleSummary').transaction((currentValue) => ({
+      wins: (currentValue?.wins || 0) + 1,
+      losses: currentValue?.losses || 0,
+      updatedAt: getTimestamp(),
+    })),
+    usersRef.child(session.loserUid).child('battleSummary').transaction((currentValue) => ({
+      wins: currentValue?.wins || 0,
+      losses: (currentValue?.losses || 0) + 1,
+      updatedAt: getTimestamp(),
+    })),
+  ]);
+}
+
 async function cleanupFinishedBattlesForUser(userId) {
   if (!userId) return;
   const finishedSessions = battleSessions.filter((session) => (
@@ -481,7 +523,10 @@ async function cleanupFinishedBattlesForUser(userId) {
   ));
   if (!finishedSessions.length) return;
 
-  await Promise.all(finishedSessions.map((session) => battleSessionsRef.child(session.id).remove()));
+  for (const session of finishedSessions) {
+    await registerBattleOutcome(session);
+    await battleSessionsRef.child(session.id).remove();
+  }
 }
 
 async function sendBattleChallenge(targetUserId, targetUserName) {
@@ -493,6 +538,7 @@ async function sendBattleChallenge(targetUserId, targetUserName) {
     toName: targetUserName || 'Usuario',
     status: 'pending',
     createdAt: getTimestamp(),
+    updatedAt: getTimestamp(),
   });
   setSyncStatus(`Desafío enviado a ${targetUserName || 'usuario'}.`, 'success');
 }
@@ -767,6 +813,7 @@ async function createBattleSessionForChallenge(challengeData) {
       [challengeData.toUid]: { hand: accepterShuffled.slice(0, 3), deck: accepterShuffled.slice(3) },
     },
     createdAt: getTimestamp(),
+    updatedAt: getTimestamp(),
   });
   return id;
 }
