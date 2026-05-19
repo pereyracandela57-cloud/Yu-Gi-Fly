@@ -20,6 +20,7 @@ const onlineUsersRef = database.ref('onlineUsers');
 const battleChallengesRef = database.ref('battleChallenges');
 const battleSessionsRef = database.ref('battleSessions');
 const battleHistoryRef = database.ref('battleHistory');
+const battleOutcomeMarkersRef = database.ref('battleOutcomeMarkers');
 
 const buttons = document.querySelectorAll('.menu-btn');
 const panels = document.querySelectorAll('.panel');
@@ -531,7 +532,7 @@ function getOpenBattleWithUser(targetUserId) {
 async function registerBattleOutcome(session) {
   if (!session?.id || session.status !== 'finished' || !session.winnerUid || !session.loserUid) return;
 
-  const markerRef = battleSessionsRef.child(session.id).child('outcomeRegisteredAt');
+  const markerRef = battleOutcomeMarkersRef.child(session.id);
   const markerResult = await markerRef.transaction((currentValue) => {
     if (currentValue) return;
     return getTimestamp();
