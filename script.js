@@ -530,6 +530,15 @@ function getStatValue(character, attribute) {
   return Number.parseInt(character?.[attribute] ?? '0', 10) || 0;
 }
 
+function getEffectiveStatValue(session, cardId, attribute) {
+  const card = characters.find((entry) => entry.id === cardId);
+  const baseValue = getStatValue(card, attribute);
+  const battleModifiers = session?.battleModifiers || {};
+  const cardModifiers = battleModifiers[cardId] || {};
+  const modifierValue = Number.parseInt(cardModifiers[attribute] ?? '0', 10) || 0;
+  return Math.max(0, baseValue + modifierValue);
+}
+
 async function resolveAttack(session, attackerSlotId, targetSlotId, attackerAttribute, defenderAttribute = attackerAttribute) {
   const attackerSlot = (session.fieldSlots || []).find((slot) => slot.id === attackerSlotId);
   const targetSlot = (session.fieldSlots || []).find((slot) => slot.id === targetSlotId);
@@ -539,14 +548,25 @@ async function resolveAttack(session, attackerSlotId, targetSlotId, attackerAttr
   const targetCard = characters.find((entry) => entry.id === targetSlot.cardId);
   if (!attackerCard || !targetCard) return;
 
-  const attackerValue = getStatValue(attackerCard, attackerAttribute);
-  const targetValue = getStatValue(targetCard, defenderAttribute);
+  const attackerValue = getEffectiveStatValue(session, attackerSlot.cardId, attackerAttribute);
+  const targetValue = getEffectiveStatValue(session, targetSlot.cardId, defenderAttribute);
   const updatedSlots = [...session.fieldSlots];
   const updatedPlayerStates = { ...(session.playerStates || {}) };
+  const updatedModifiers = { ...(session.battleModifiers || {}) };
+  const players = getBattlePlayers(session);
+  const nextTurnUid = players.find((uid) => uid !== session.currentTurnUid) || session.currentTurnUid;
   let loserCardId = '';
+  let statPenaltyMessage = '';
 
   if (attackerValue < targetValue) {
     loserCardId = attackerSlot.cardId;
+    const penalty = Math.floor(targetValue / 2);
+    const attackerModifiers = { ...(updatedModifiers[attackerSlot.cardId] || {}) };
+    const previousPenalty = Number.parseInt(attackerModifiers[attackerAttribute] ?? '0', 10) || 0;
+    attackerModifiers[attackerAttribute] = previousPenalty - penalty;
+    updatedModifiers[attackerSlot.cardId] = attackerModifiers;
+    const resultingValue = getStatValue(attackerCard, attackerAttribute) + attackerModifiers[attackerAttribute];
+    statPenaltyMessage = ` ${attackerCard.name} pierde ${penalty} puntos en ${attackerAttribute} y queda en ${Math.max(0, resultingValue)} durante la batalla.`;
     const loserIndex = updatedSlots.findIndex((slot) => slot.id === attackerSlotId);
     updatedSlots[loserIndex] = { ...updatedSlots[loserIndex], cardId: '', faceDown: false };
   } else if (targetValue < attackerValue) {
@@ -556,7 +576,12 @@ async function resolveAttack(session, attackerSlotId, targetSlotId, attackerAttr
   }
 
   if (!loserCardId) {
-    window.alert(`Empate: ataque (${attackerAttribute}) y defensa (${defenderAttribute}). Ninguna carta desaparece.`);
+    await battleSessionsRef.child(session.id).update({
+      currentTurnUid: nextTurnUid,
+      pendingDefense: null,
+      updatedAt: getTimestamp(),
+    });
+    window.alert(`Empate: ataque (${attackerAttribute}) y defensa (${defenderAttribute}). Ninguna carta desaparece y el turno pasa al rival.`);
     return;
   }
 
@@ -572,11 +597,13 @@ async function resolveAttack(session, attackerSlotId, targetSlotId, attackerAttr
   await battleSessionsRef.child(session.id).update({
     fieldSlots: updatedSlots,
     playerStates: updatedPlayerStates,
+    battleModifiers: updatedModifiers,
+    currentTurnUid: nextTurnUid,
     pendingDefense: null,
     updatedAt: getTimestamp(),
   });
 
-  window.alert(`Ataque (${attackerAttribute}) vs defensa (${defenderAttribute}): ${attackerCard.name} (${attackerValue}) vs ${targetCard.name} (${targetValue}). La carta derrotada desapareció del mazo y de la mano.`);
+  window.alert(`Ataque (${attackerAttribute}) vs defensa (${defenderAttribute}): ${attackerCard.name} (${attackerValue}) vs ${targetCard.name} (${targetValue}). La carta derrotada desapareció del mazo y de la mano.${statPenaltyMessage} El turno pasa al rival.`);
 }
 
 function renderBattleArena() {
@@ -629,7 +656,7 @@ function renderBattleCharacterCard(card, { hidden = false } = {}) {
       <span class="battle-mini-name">${escapeHtml(card.name)}</span>
       ${card.image ? `<img class="battle-mini-image" src="${escapeHtml(card.image)}" alt="${escapeHtml(card.name)}">` : '<span class="battle-mini-image placeholder-image">Sin imagen</span>'}
       <span class="battle-mini-meta">${escapeHtml(card.type)} · ${escapeHtml(card.clan)}</span>
-      <span class="battle-mini-stats">M ${escapeHtml(card.magic)} | F ${escapeHtml(card.strength)} | I ${escapeHtml(card.intelligence)} | V ${escapeHtml(card.speed)}</span>
+      <span class="battle-mini-stats">M ${escapeHtml(getEffectiveStatValue(activeBattleSession, card.id, 'magic'))} | F ${escapeHtml(getEffectiveStatValue(activeBattleSession, card.id, 'strength'))} | I ${escapeHtml(getEffectiveStatValue(activeBattleSession, card.id, 'intelligence'))} | V ${escapeHtml(getEffectiveStatValue(activeBattleSession, card.id, 'speed'))}</span>
     </span>
   `;
 }
