@@ -506,7 +506,7 @@ function getStatValue(character, attribute) {
   return Number.parseInt(character?.[attribute] ?? '0', 10) || 0;
 }
 
-async function resolveAttack(session, attackerSlotId, targetSlotId, attribute) {
+async function resolveAttack(session, attackerSlotId, targetSlotId, attackerAttribute, defenderAttribute = attackerAttribute) {
   const attackerSlot = (session.fieldSlots || []).find((slot) => slot.id === attackerSlotId);
   const targetSlot = (session.fieldSlots || []).find((slot) => slot.id === targetSlotId);
   if (!attackerSlot || !targetSlot || !attackerSlot.cardId || !targetSlot.cardId) return;
@@ -515,8 +515,8 @@ async function resolveAttack(session, attackerSlotId, targetSlotId, attribute) {
   const targetCard = characters.find((entry) => entry.id === targetSlot.cardId);
   if (!attackerCard || !targetCard) return;
 
-  const attackerValue = getStatValue(attackerCard, attribute);
-  const targetValue = getStatValue(targetCard, attribute);
+  const attackerValue = getStatValue(attackerCard, attackerAttribute);
+  const targetValue = getStatValue(targetCard, defenderAttribute);
   const updatedSlots = [...session.fieldSlots];
   const updatedPlayerStates = { ...(session.playerStates || {}) };
   let loserCardId = '';
@@ -532,7 +532,7 @@ async function resolveAttack(session, attackerSlotId, targetSlotId, attribute) {
   }
 
   if (!loserCardId) {
-    window.alert(`Empate en ${attribute}. Ninguna carta desaparece.`);
+    window.alert(`Empate: ataque (${attackerAttribute}) y defensa (${defenderAttribute}). Ninguna carta desaparece.`);
     return;
   }
 
@@ -548,10 +548,11 @@ async function resolveAttack(session, attackerSlotId, targetSlotId, attribute) {
   await battleSessionsRef.child(session.id).update({
     fieldSlots: updatedSlots,
     playerStates: updatedPlayerStates,
+    pendingDefense: null,
     updatedAt: getTimestamp(),
   });
 
-  window.alert(`Ataque con ${attribute}: ${attackerCard.name} (${attackerValue}) vs ${targetCard.name} (${targetValue}). La carta derrotada desapareció del mazo y de la mano.`);
+  window.alert(`Ataque (${attackerAttribute}) vs defensa (${defenderAttribute}): ${attackerCard.name} (${attackerValue}) vs ${targetCard.name} (${targetValue}). La carta derrotada desapareció del mazo y de la mano.`);
 }
 
 function renderBattleArena() {
@@ -1190,47 +1191,35 @@ charactersRef.on(
   },
 );
 
-document.addEventListener('click', (event) => {
-  const deckCard = event.target.closest('.deck-card');
-  if (!deckCard) return;
-  const characterId = deckCard.dataset.deckCharacterId;
-  if (!characterId) return;
+const battleAttackModal = document.querySelector('#battle-attack-modal');
+const battleAttackText = document.querySelector('#battle-attack-text');
+const battleAttackOptions = document.querySelector('#battle-attack-options');
+const battleAttackCancelButton = document.querySelector('#battle-attack-cancel');
+const battleAttributes = ['magic', 'strength', 'intelligence', 'speed'];
+let pendingAttributePick = null;
 
-  if (savedDeck.characterIds.length === 20) {
-    toggleMainCharacter(characterId).catch((error) => {
-      console.error('No se pudo actualizar los personajes principales:', error);
-    });
+function openAttributePicker(mode, card, onPick) {
+  pendingAttributePick = { mode, onPick };
+  battleAttackText.textContent = mode === 'defense' ? `Elige atributo para defender con ${card.name}.` : `Elige atributo para atacar con ${card.name}.`;
+  battleAttackOptions.innerHTML = battleAttributes.map((attribute) => (
+    `<button class="save-character-btn battle-attribute-btn" data-battle-attribute="${attribute}" type="button">${attribute.toUpperCase()} (${escapeHtml(card[attribute])})</button>`
+  )).join('');
+  battleAttackModal.classList.remove('hidden');
+}
+
+function hideAttributePicker() {
+  battleAttackModal.classList.add('hidden');
+  pendingAttributePick = null;
+}
+
+document.addEventListener('click', (event) => {
+  const attributeButton = event.target.closest('[data-battle-attribute]');
+  if (attributeButton && pendingAttributePick) {
+    pendingAttributePick.onPick(attributeButton.dataset.battleAttribute);
+    hideAttributePicker();
     return;
   }
 
-  if (selectedDeckIds.includes(characterId)) {
-    selectedDeckIds = selectedDeckIds.filter((id) => id !== characterId);
-    deckOrder = deckOrder.filter((id) => id !== characterId);
-  } else if (selectedDeckIds.length < 20) {
-    selectedDeckIds.push(characterId);
-    deckOrder.push(characterId);
-  }
-
-  renderDeckBuilder();
-});
-
-battleUsersList.addEventListener('click', (event) => {
-  const trigger = event.target.closest('.challenge-user-btn');
-  if (!trigger) return;
-  const openBattle = getOpenBattleWithUser(trigger.dataset.challengeUserId);
-  if (openBattle) {
-    battleArenaDismissed = false;
-    renderBattleArena();
-    return;
-  }
-  sendBattleChallenge(trigger.dataset.challengeUserId, trigger.dataset.challengeUserName).catch((error) => {
-    console.error('No se pudo enviar el desafío:', error);
-    setSyncStatus('No se pudo enviar el desafío de batalla.', 'error');
-  });
-});
-
-
-document.addEventListener('click', (event) => {
   const handCard = event.target.closest('[data-battle-hand-id]');
   if (handCard) {
     showCardActionModal(handCard.dataset.battleHandId);
@@ -1238,28 +1227,24 @@ document.addEventListener('click', (event) => {
   }
 
   const targetSlot = event.target.closest('[data-battle-slot-id]');
-  if (!targetSlot || !activeBattleSession || !selectedHandCardId || !currentUserId || !pendingPlacementMode) return;
+  if (!targetSlot || !activeBattleSession || !currentUserId) return;
   if (activeBattleSession.currentTurnUid !== currentUserId) return;
 
-  const faceDown = pendingPlacementMode === 'facedown';
   const slotId = targetSlot.dataset.battleSlotId;
   const session = activeBattleSession;
   const clickedSlot = (session.fieldSlots || []).find((slot) => slot.id === slotId);
   if (!clickedSlot) return;
 
   if (!clickedSlot.cardId) {
-    if (!selectedHandCardId) return;
+    if (!selectedHandCardId || !pendingPlacementMode) return;
     const myState = getPlayerState(session, currentUserId);
     if (!myState.hand.includes(selectedHandCardId)) return;
-    const faceDown = window.confirm('¿Quieres colocarla boca abajo?');
+    const faceDown = pendingPlacementMode === 'facedown';
     const fieldSlots = (session.fieldSlots || []).map((slot) => (slot.id === slotId ? { ...slot, cardId: selectedHandCardId, faceDown } : slot));
     const updatedHand = myState.hand.filter((id) => id !== selectedHandCardId);
     const updatedDeck = [...myState.deck];
-    if (updatedDeck.length) {
-      updatedHand.push(updatedDeck.shift());
-    }
+    if (updatedDeck.length) updatedHand.push(updatedDeck.shift());
     const opponentUid = session.players.find((uid) => uid !== currentUserId);
-
     battleSessionsRef.child(session.id).update({
       fieldSlots,
       currentTurnUid: opponentUid,
@@ -1268,46 +1253,45 @@ document.addEventListener('click', (event) => {
       updatedAt: getTimestamp(),
     });
     selectedHandCardId = null;
+    pendingPlacementMode = null;
     return;
   }
 
-  if (clickedSlot.ownerUid !== currentUserId) {
-    if (!pendingAttack || clickedSlot.faceDown) return;
-    resolveAttack(session, pendingAttack.attackerSlotId, slotId, pendingAttack.attribute).catch((error) => {
-      console.error('No se pudo resolver el ataque:', error);
+  if (clickedSlot.ownerUid === currentUserId) {
+    const attackerCard = characters.find((entry) => entry.id === clickedSlot.cardId);
+    if (!attackerCard) return;
+    openAttributePicker('attack', attackerCard, (selectedAttribute) => {
+      pendingAttack = { attackerSlotId: clickedSlot.id, attribute: selectedAttribute };
+      window.alert('Atributo elegido. Ahora selecciona una carta del campo rival para atacarla.');
     });
+    return;
+  }
+
+  if (!pendingAttack) return;
+  const targetCard = characters.find((entry) => entry.id === clickedSlot.cardId);
+  if (!targetCard) return;
+
+  if (!clickedSlot.faceDown) {
+    resolveAttack(session, pendingAttack.attackerSlotId, clickedSlot.id, pendingAttack.attribute, pendingAttack.attribute).catch((error) => console.error('No se pudo resolver el ataque:', error));
     pendingAttack = null;
     return;
   }
 
-  const attackerCard = characters.find((entry) => entry.id === clickedSlot.cardId);
-  if (!attackerCard) return;
-  const wantsAttack = window.confirm(`¿Quieres atacar con ${attackerCard.name}?`);
-  if (!wantsAttack) return;
-
-  const selectedAttribute = window.prompt(
-    `Elige atributo para atacar con ${attackerCard.name}:\nmagic (${attackerCard.magic}), strength (${attackerCard.strength}), intelligence (${attackerCard.intelligence}), speed (${attackerCard.speed})`,
-    'speed',
-  );
-  const normalized = (selectedAttribute || '').trim().toLowerCase();
-  const validAttributes = ['magic', 'strength', 'intelligence', 'speed'];
-  if (!validAttributes.includes(normalized)) {
-    window.alert('Atributo no válido. Usa: magic, strength, intelligence o speed.');
-    return;
-  }
-
   battleSessionsRef.child(session.id).update({
-    fieldSlots,
-    currentTurnUid: opponentUid,
-    [`playerStates/${currentUserId}/hand`]: updatedHand,
-    [`playerStates/${currentUserId}/deck`]: updatedDeck,
+    pendingDefense: {
+      attackerSlotId: pendingAttack.attackerSlotId,
+      targetSlotId: clickedSlot.id,
+      attackerAttribute: pendingAttack.attribute,
+      attackerUid: currentUserId,
+      defenderUid: clickedSlot.ownerUid,
+    },
     updatedAt: getTimestamp(),
   });
-  selectedHandCardId = null;
-  pendingPlacementMode = null;
-}
-);
+  pendingAttack = null;
+  window.alert('Carta boca abajo elegida. El defensor debe escoger su atributo para resolver el combate.');
+});
 
+battleAttackCancelButton?.addEventListener('click', hideAttributePicker);
 acceptChallengeButton.addEventListener('click', () => {
   respondToChallenge('accepted').catch((error) => {
     console.error('No se pudo aceptar el desafío:', error);
@@ -1344,6 +1328,22 @@ battleSessionsRef.on('value', (snapshot) => {
   }
   if (!battleArenaDismissed) {
     renderBattleArena();
+  }
+  const pendingDefenseData = current.pendingDefense;
+  if (pendingDefenseData?.defenderUid === currentUserId) {
+    const defenderSlot = (current.fieldSlots || []).find((slot) => slot.id === pendingDefenseData.targetSlotId);
+    const defenderCard = defenderSlot?.cardId ? characters.find((entry) => entry.id === defenderSlot.cardId) : null;
+    if (defenderCard) {
+      openAttributePicker('defense', defenderCard, (defenseAttribute) => {
+        resolveAttack(
+          current,
+          pendingDefenseData.attackerSlotId,
+          pendingDefenseData.targetSlotId,
+          pendingDefenseData.attackerAttribute,
+          defenseAttribute,
+        ).catch((error) => console.error('No se pudo resolver defensa:', error));
+      });
+    }
   }
   renderOnlineUsers();
 });
