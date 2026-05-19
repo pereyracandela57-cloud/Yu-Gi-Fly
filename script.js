@@ -15,6 +15,7 @@ const auth = firebase.auth();
 const googleProvider = new firebase.auth.GoogleAuthProvider();
 const charactersRef = database.ref('characters');
 const userDecksRef = database.ref('userDecks');
+const usersRef = database.ref('users');
 const onlineUsersRef = database.ref('onlineUsers');
 const battleChallengesRef = database.ref('battleChallenges');
 const battleSessionsRef = database.ref('battleSessions');
@@ -47,6 +48,9 @@ const battleCardActionModal = document.querySelector('#battle-card-action-modal'
 const battleActionPlaceButton = document.querySelector('#battle-action-place');
 const battleActionFaceDownButton = document.querySelector('#battle-action-facedown');
 const battleActionCancelButton = document.querySelector('#battle-action-cancel');
+const battleSurrenderVictoryModal = document.querySelector('#battle-surrender-victory-modal');
+const battleSurrenderVictoryText = document.querySelector('#battle-surrender-victory-text');
+const battleSurrenderVictoryCloseButton = document.querySelector('#battle-surrender-victory-close-btn');
 
 const characterTypes = [
   { type: 'Brujas', clans: ['Luna Carmesí', 'Hijas del Caldero', 'Las Espinas Negras', 'Coven Eclipse'] },
@@ -130,13 +134,18 @@ let selectedDeckIds = [];
 let deckOrder = [];
 let savedDeck = { characterIds: [], mainIds: [] };
 let onlineUsers = {};
+let users = {};
 let activeChallenge = null;
 let activeBattleSession = null;
+let battleSessions = [];
+let pendingChallenges = [];
 let battleArenaDismissed = false;
 let surrenderInFlightUserId = null;
 let selectedHandCardId = null;
 let pendingPlacementMode = null;
 let pendingAttack = null;
+const shownSurrenderVictoryBySessionId = new Set();
+const previousBattleStatusBySessionId = {};
 
 buttons.forEach((button) => {
   button.addEventListener('click', () => {
@@ -294,18 +303,19 @@ function renderCharacterCard(character) {
 
   return `
     <button class="character-card" type="button" data-character-id="${escapeHtml(character.id)}" style="${getTypeColorStyles(character.type)}" aria-label="Abrir perfil de ${safeName}">
-      <span class="character-card-header">${safeName}</span>
-      ${imageMarkup}
-      <span class="character-card-footer">
-        <span class="meta"><strong>Tipo:</strong> <span class="character-type-pill">${escapeHtml(character.type)}</span></span>
-        <span class="meta"><strong>Clan:</strong> ${escapeHtml(character.clan)}</span>
-        <span class="stats-list" aria-label="Atributos de ${safeName}">
-          <span>Magia: ${escapeHtml(character.magic)}</span>
-          <span>Fuerza: ${escapeHtml(character.strength)}</span>
-          <span>Inteligencia: ${escapeHtml(character.intelligence)}</span>
-          <span>Velocidad: ${escapeHtml(character.speed)}</span>
+      <span class="character-card-layout">
+        <span class="character-card-left">
+          <span class="character-card-header">${safeName}</span>
+          <span class="meta"><strong>Tipo:</strong> <span class="character-type-pill">${escapeHtml(character.type)}</span></span>
+          <span class="stats-list" aria-label="Atributos de ${safeName}">
+            <span><strong>F</strong>: ${escapeHtml(character.strength)}</span>
+            <span><strong>I</strong>: ${escapeHtml(character.intelligence)}</span>
+            <span><strong>V</strong>: ${escapeHtml(character.speed)}</span>
+            <span><strong>M</strong>: ${escapeHtml(character.magic)}</span>
+          </span>
+          <span class="character-card-cta">Ver perfil y editar</span>
         </span>
-        <span class="character-card-cta">Ver perfil y editar</span>
+        <span class="character-card-right">${imageMarkup}</span>
       </span>
     </button>
   `;
@@ -328,6 +338,13 @@ function renderDeckBuilder() {
   }
 
   const hasSavedDeck = savedDeck.characterIds.length === 20;
+  const hasBlockingBattle = currentUserId
+    && (battleSessions.some((session) => (session.players || []).includes(currentUserId) && session.status === 'active')
+      || pendingChallenges.some((challenge) => (
+        challenge?.status === 'pending'
+        && (challenge?.fromUid === currentUserId || challenge?.toUid === currentUserId)
+      )));
+  const canEditDeck = !hasBlockingBattle;
   const availableCharacters = hasSavedDeck
     ? characters.filter((character) => savedDeck.characterIds.includes(character.id))
     : characters;
@@ -342,6 +359,10 @@ function renderDeckBuilder() {
         : 'Selecciona 20 personajes para tu mazo principal.'}
     </p>
     <div class="deck-count">${hasSavedDeck ? `Mazo guardado: ${savedDeck.characterIds.length}/20` : `Seleccionados: ${selectedDeckIds.length}/20`}</div>
+    <button id="edit-deck-btn" class="save-character-btn" type="button" ${canEditDeck ? '' : 'disabled'}>
+      Editar Mazo
+    </button>
+    ${canEditDeck ? '' : '<p class="deck-lock-note">No puedes editar el mazo mientras haya batallas pendientes o en curso.</p>'}
     ${(!hasSavedDeck && selectedDeckIds.length === 20) ? '<button id="save-deck-btn" class="save-character-btn" type="button">Guardar Mazo</button>' : ''}
     <section class="deck-grid">
       ${availableCharacters.map((character) => {
@@ -367,29 +388,41 @@ function renderDeckBuilder() {
   if (saveDeckBtn) {
     saveDeckBtn.addEventListener('click', saveDeck);
   }
+
+  const editDeckBtn = document.querySelector('#edit-deck-btn');
+  if (editDeckBtn) {
+    editDeckBtn.addEventListener('click', () => {
+      if (!canEditDeck) return;
+      savedDeck = { characterIds: [], mainIds: [] };
+      selectedDeckIds = [];
+      deckOrder = [];
+      renderDeckBuilder();
+    });
+  }
 }
 
 function renderOnlineUsers() {
   if (!battleUsersList) return;
 
   if (!currentUserId) {
-    battleUsersList.innerHTML = '<p>Inicia sesión para ver usuarios conectados.</p>';
+    battleUsersList.innerHTML = '<p>Inicia sesión para ver perfiles autenticados.</p>';
     return;
   }
 
-  const users = Object.values(onlineUsers).filter((entry) => entry.uid !== currentUserId);
-  if (!users.length) {
-    battleUsersList.innerHTML = '<p>No hay otros usuarios conectados en este momento.</p>';
+  const authenticatedUsers = Object.values(users).filter((entry) => entry.uid !== currentUserId);
+  if (!authenticatedUsers.length) {
+    battleUsersList.innerHTML = '<p>No hay otros perfiles autenticados disponibles por ahora.</p>';
     return;
   }
 
-  battleUsersList.innerHTML = users
+  battleUsersList.innerHTML = authenticatedUsers
     .map((user) => {
       const hasOpenBattle = Boolean(getOpenBattleWithUser(user.uid));
-      const isSurrendering = hasOpenBattle && surrenderInFlightUserId === user.uid;
+      const isOnline = Boolean(onlineUsers[user.uid]);
       return `
       <article class="battle-user-card">
         <p class="battle-user-name">${escapeHtml(user.name || 'Usuario sin nombre')}</p>
+        <p class="battle-user-status">${isOnline ? 'En línea' : 'Desconectado'}</p>
         <div class="battle-user-actions">
           <button class="save-character-btn challenge-user-btn" type="button" data-challenge-user-id="${escapeHtml(user.uid)}" data-challenge-user-name="${escapeHtml(user.name || 'Usuario')}">
             Retar a batalla
@@ -458,6 +491,17 @@ function showChallengeModal(challengeData) {
 function hideChallengeModal() {
   activeChallenge = null;
   battleChallengeModal.classList.add('hidden');
+}
+
+function showSurrenderVictoryModal() {
+  if (battleSurrenderVictoryText) {
+    battleSurrenderVictoryText.textContent = 'FELICIDADES HAS VENCIDO! TU CONTRINCANTE SE HA RENDIDO';
+  }
+  battleSurrenderVictoryModal?.classList.remove('hidden');
+}
+
+function hideSurrenderVictoryModal() {
+  battleSurrenderVictoryModal?.classList.add('hidden');
 }
 
 async function respondToChallenge(status) {
@@ -1167,6 +1211,14 @@ function toggleAuthenticatedUi(user) {
   }
 
   const presenceRef = onlineUsersRef.child(user.uid);
+  usersRef.child(user.uid).update({
+    uid: user.uid,
+    name: user.displayName || 'Usuario sin nombre',
+    photoURL: user.photoURL || '',
+    lastSeen: getTimestamp(),
+  }).catch((error) => {
+    console.error('No se pudo actualizar el perfil del usuario:', error);
+  });
   const connectedRef = database.ref('.info/connected');
   connectedRef.on('value', (snapshot) => {
     if (snapshot.val() !== true) return;
@@ -1207,8 +1259,14 @@ onlineUsersRef.on('value', (snapshot) => {
   renderOnlineUsers();
 });
 
+usersRef.on('value', (snapshot) => {
+  users = snapshot.val() || {};
+  renderOnlineUsers();
+});
+
 battleChallengesRef.on('value', (snapshot) => {
   if (!currentUserId) return;
+  pendingChallenges = Object.values(snapshot.val() || {});
   const challengeData = snapshot.child(currentUserId).val();
   if (challengeData && challengeData.status === 'pending') {
     showChallengeModal(challengeData);
@@ -1218,6 +1276,7 @@ battleChallengesRef.on('value', (snapshot) => {
   if (!challengeData && activeChallenge) {
     hideChallengeModal();
   }
+  renderDeckBuilder();
 });
 
 charactersRef.on(
@@ -1274,21 +1333,24 @@ function hideAttributePicker() {
 }
 
 document.addEventListener('click', (event) => {
-  const challengeButton = event.target.closest('[data-challenge-user-id]');
-  if (challengeButton) {
-    sendBattleChallenge(challengeButton.dataset.challengeUserId, challengeButton.dataset.challengeUserName).catch((error) => {
-      console.error('No se pudo enviar el desafío:', error);
-    });
-    return;
-  }
+  const deckCard = event.target.closest('[data-deck-character-id]');
+  if (deckCard && currentUserId) {
+    const characterId = deckCard.dataset.deckCharacterId;
+    const hasSavedDeck = savedDeck.characterIds.length === 20;
+    if (hasSavedDeck) {
+      toggleMainCharacter(characterId).catch((error) => console.error('No se pudo actualizar personaje principal:', error));
+      return;
+    }
 
-  const surrenderButton = event.target.closest('[data-surrender-user-id]');
-  if (surrenderButton) {
-    surrenderBattleAgainst(surrenderButton.dataset.surrenderUserId).catch((error) => {
-      console.error('No se pudo rendir la batalla:', error);
-      surrenderInFlightUserId = null;
-      renderOnlineUsers();
-    });
+    const isSelected = selectedDeckIds.includes(characterId);
+    if (isSelected) {
+      selectedDeckIds = selectedDeckIds.filter((id) => id !== characterId);
+      deckOrder = deckOrder.filter((id) => id !== characterId);
+    } else if (selectedDeckIds.length < 20) {
+      selectedDeckIds.push(characterId);
+      deckOrder.push(characterId);
+    }
+    renderDeckBuilder();
     return;
   }
 
@@ -1388,16 +1450,19 @@ battleArenaCloseButton.addEventListener('click', () => {
   battleArenaModal.classList.add('hidden');
 });
 
+battleSurrenderVictoryCloseButton?.addEventListener('click', hideSurrenderVictoryModal);
 
 battleSessionsRef.on('value', (snapshot) => {
   if (!currentUserId) return;
   const sessions = snapshot.val() || {};
+  battleSessions = Object.values(sessions);
   const current = Object.values(sessions).find((session) => (session.players || []).includes(currentUserId) && session.status === 'active');
   if (!current) {
     activeBattleSession = null;
     battleArenaDismissed = false;
     battleArenaModal.classList.add('hidden');
     renderOnlineUsers();
+    renderDeckBuilder();
     return;
   }
   const previousBattleId = activeBattleSession?.id;
@@ -1425,6 +1490,7 @@ battleSessionsRef.on('value', (snapshot) => {
     }
   }
   renderOnlineUsers();
+  renderDeckBuilder();
 });
 
 
