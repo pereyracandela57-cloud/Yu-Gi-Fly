@@ -156,6 +156,65 @@ const previousBattleStatusBySessionId = {};
 let historyTypesData = {};
 let selectedHistoryTypeId = '';
 
+let historyTypeContextMenuState = null;
+
+function closeHistoryTypeContextMenu() {
+  if (!historyTypeContextMenuState) return;
+  historyTypeContextMenuState.menu.remove();
+  historyTypeContextMenuState = null;
+}
+
+function openHistoryTypeContextMenu(typeId, posX, posY) {
+  closeHistoryTypeContextMenu();
+  const typeEntry = historyTypesData[typeId];
+  if (!typeEntry) return;
+
+  const menu = document.createElement('div');
+  menu.className = 'history-type-context-menu';
+  menu.innerHTML = `
+    <button type="button" data-action="edit">Editar tipo</button>
+    <button type="button" data-action="delete">Eliminar tipo</button>
+  `;
+
+  const placeMenu = () => {
+    const margin = 8;
+    const menuWidth = menu.offsetWidth;
+    const menuHeight = menu.offsetHeight;
+    const boundedX = Math.min(posX, window.innerWidth - menuWidth - margin);
+    const boundedY = Math.min(posY, window.innerHeight - menuHeight - margin);
+    menu.style.left = `${Math.max(margin, boundedX)}px`;
+    menu.style.top = `${Math.max(margin, boundedY)}px`;
+  };
+
+  menu.addEventListener('click', async (event) => {
+    const actionBtn = event.target.closest('[data-action]');
+    if (!actionBtn) return;
+
+    const action = actionBtn.dataset.action;
+    closeHistoryTypeContextMenu();
+
+    if (action === 'edit') {
+      const newName = prompt('Nuevo nombre del tipo', typeEntry.name || '');
+      if (!newName || !newName.trim()) return;
+      await historyTypesRef.child(typeId).update({ name: newName.trim() });
+      return;
+    }
+
+    if (action === 'delete') {
+      const confirmed = window.confirm(`¿Eliminar el tipo "${typeEntry.name}" y todos sus clanes asociados?`);
+      if (!confirmed) return;
+      await historyTypesRef.child(typeId).remove();
+      if (selectedHistoryTypeId === typeId) {
+        selectedHistoryTypeId = '';
+      }
+    }
+  });
+
+  document.body.append(menu);
+  placeMenu();
+  historyTypeContextMenuState = { menu, typeId };
+}
+
 buttons.forEach((button) => {
   button.addEventListener('click', () => {
     const targetId = button.dataset.target;
@@ -1440,11 +1499,13 @@ function renderHistoryTypes() {
 
   if (selectedHistoryTypeId) {
     historyTypesList.innerHTML = '';
+    closeHistoryTypeContextMenu();
     renderHistoryClans();
     return;
   }
 
   historyClansList.innerHTML = '';
+  closeHistoryTypeContextMenu();
   historyTypesList.innerHTML = types.length
     ? `<ul class="history-simple-list">${types.map(([typeId, type]) => `<li><button class="menu-btn history-link-btn" type="button" data-history-type-id="${escapeHtml(typeId)}">${escapeHtml(type.name)}</button></li>`).join('')}</ul>`
     : '<p>No hay tipos cargados.</p>';
@@ -1560,6 +1621,22 @@ historyTypesList?.addEventListener('click', async (event) => {
     renderHistoryTypes();
   }
 });
+
+historyTypesList?.addEventListener('contextmenu', (event) => {
+  const typeBtn = event.target.closest('[data-history-type-id]');
+  if (!typeBtn) return;
+  event.preventDefault();
+  openHistoryTypeContextMenu(typeBtn.dataset.historyTypeId, event.clientX, event.clientY);
+});
+
+document.addEventListener('click', (event) => {
+  if (!historyTypeContextMenuState) return;
+  if (historyTypeContextMenuState.menu.contains(event.target)) return;
+  closeHistoryTypeContextMenu();
+});
+
+document.addEventListener('scroll', closeHistoryTypeContextMenu, true);
+window.addEventListener('resize', closeHistoryTypeContextMenu);
 
 historyClansList?.addEventListener('click', async (event) => {
   const backBtn = event.target.closest('#back-to-types-btn');
