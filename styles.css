@@ -301,7 +301,7 @@ body::before {
 .character-gallery {
   margin: 1.2rem 0;
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: 1rem;
 }
 
@@ -1146,4 +1146,25 @@ body::before {
 
 .battle-field-card {
   height: 100%;
+}
+
+
+.character-gallery-card {
+  height: 100%;
+}
+
+.character-gallery-card .character-card-layout {
+  height: 100%;
+}
+
+.delete-character-btn {
+  margin: 0;
+  font-family: inherit;
+  font-size: 1rem;
+  padding: 0.75rem 1.1rem;
+  border-radius: 10px;
+  border: 1px solid #ffb3b3;
+  color: #fff;
+  cursor: pointer;
+  background: linear-gradient(145deg, #ff8b8b, #c52f2f 45%, #7d1212 100%);
 }
