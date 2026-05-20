@@ -1168,3 +1168,11 @@ body::before {
   cursor: pointer;
   background: linear-gradient(145deg, #ff8b8b, #c52f2f 45%, #7d1212 100%);
 }
+
+.history-admin { margin-top: 1rem; display: grid; gap: 1rem; }
+.history-item { border:1px solid rgba(196,152,70,.35); padding:.8rem; border-radius:10px; display:grid; gap:.5rem; }
+.history-item.selected { outline: 2px solid #f4e1a3; }
+.history-link-btn { width:100%; text-align:left; }
+.history-inline-actions { display:flex; gap:.5rem; flex-wrap:wrap; }
+.history-admin textarea { width:100%; min-height:84px; background:#201a14; color:#efe6d2; border:1px solid #7d5c1d; border-radius:8px; padding:.5rem; }
+.history-section-header { display:flex; justify-content:space-between; align-items:center; gap:1rem; }
