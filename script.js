@@ -298,6 +298,10 @@ function updateTypeColorPreview() {
   colorPreview.innerHTML = `Color asignado: <strong>${typeSelect.value}</strong>`;
 }
 
+function getClanLabel(clan) {
+  return clan ? clan : 'Sin clan';
+}
+
 function renderSharedCharacterCard(character, options = {}) {
   const {
     dataAttribute = 'data-character-id',
@@ -331,7 +335,7 @@ function renderSharedCharacterCard(character, options = {}) {
         <span class="character-card-footer">
           <span class="character-card-tags">
             <span class="character-type-clan-tag">${escapeHtml(character.type)}</span>
-            <span class="character-type-clan-tag">${escapeHtml(character.clan)}</span>
+            <span class="character-type-clan-tag">${escapeHtml(getClanLabel(character.clan))}</span>
           </span>
           <span class="stats-list" aria-label="Atributos de ${safeName}">
             <span><strong>F</strong>: ${escapeHtml(character.strength)}</span>
@@ -1001,7 +1005,7 @@ function updateProfileClanOptions(selectedClan = '') {
   }
 
   clanSelect.disabled = false;
-  clanSelect.append(createOption('', 'Selecciona un clan'));
+  clanSelect.append(createOption('', 'Sin clan'));
   selectedType.clans.forEach((clan) => clanSelect.append(createOption(clan, clan)));
   clanSelect.value = selectedClan;
 }
@@ -1044,7 +1048,7 @@ function renderProfile(character) {
           </label>
           <label>
             Clan
-            <select id="profile-character-clan" name="clan" required></select>
+            <select id="profile-character-clan" name="clan"></select>
           </label>
           <div class="stats-grid">
             <label>
@@ -1170,7 +1174,7 @@ function updateClanOptions() {
   }
 
   clanSelect.disabled = false;
-  clanSelect.append(createOption('', 'Selecciona un clan'));
+  clanSelect.append(createOption('', 'Sin clan'));
   selectedType.clans.forEach((clan) => clanSelect.append(createOption(clan, clan)));
 }
 
@@ -1266,7 +1270,7 @@ function createCharacterForm() {
           <div class="type-color-preview" aria-live="polite">Selecciona un tipo para ver su color asignado.</div>
           <label>
             Clan
-            <select id="character-clan" name="clan" required disabled>
+            <select id="character-clan" name="clan" disabled>
               <option value="">Selecciona primero un tipo</option>
             </select>
           </label>
