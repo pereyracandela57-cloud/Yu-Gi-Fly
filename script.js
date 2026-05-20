@@ -21,6 +21,7 @@ const battleChallengesRef = database.ref('battleChallenges');
 const battleSessionsRef = database.ref('battleSessions');
 const battleHistoryRef = database.ref('battleHistory');
 const battleOutcomeMarkersRef = database.ref('battleOutcomeMarkers');
+const historyTypesRef = database.ref('historyTypes');
 
 const buttons = document.querySelectorAll('.menu-btn');
 const panels = document.querySelectorAll('.panel');
@@ -54,6 +55,10 @@ const battleSurrenderVictoryModal = document.querySelector('#battle-surrender-vi
 const battleSurrenderVictoryText = document.querySelector('#battle-surrender-victory-text');
 const battleSurrenderVictoryCloseButton = document.querySelector('#battle-surrender-victory-close-btn');
 const battleHistoryList = document.querySelector('#battle-history-list');
+const showTypesButton = document.querySelector('#show-types-btn');
+const historyTypesList = document.querySelector('#history-types-list');
+const historyClansList = document.querySelector('#history-clans-list');
+const historyCharactersList = document.querySelector('#history-characters-list');
 
 const characterTypes = [
   { type: 'Brujas', clans: ['Luna Carmesí', 'Hijas del Caldero', 'Las Espinas Negras', 'Coven Eclipse'] },
@@ -150,6 +155,9 @@ let pendingAttack = null;
 let battleHistoryByOpponent = {};
 const shownSurrenderVictoryBySessionId = new Set();
 const previousBattleStatusBySessionId = {};
+let historyTypesData = {};
+let selectedHistoryTypeId = '';
+let selectedHistoryClanId = '';
 
 buttons.forEach((button) => {
   button.addEventListener('click', () => {
@@ -1382,6 +1390,65 @@ function createCharacterForm() {
 }
 
 
+function normalizeHistoryTypes(rawData) {
+  if (rawData && Object.keys(rawData).length) return rawData;
+  const seeded = {};
+  characterTypes.forEach((entry) => {
+    const typeId = crypto.randomUUID();
+    seeded[typeId] = {
+      name: entry.type,
+      description: '',
+      clans: Object.fromEntries(entry.clans.map((clan) => [crypto.randomUUID(), { name: clan, story: '' }])),
+    };
+  });
+  historyTypesRef.set(seeded).catch(() => {});
+  return seeded;
+}
+
+function renderHistoryCharacters(typeName, clanName) {
+  if (!historyCharactersList) return;
+  const linked = characters.filter((c) => c.type === typeName && c.clan === clanName);
+  historyCharactersList.innerHTML = `
+    <h3>Personajes ligados a ${escapeHtml(clanName)}</h3>
+    ${linked.length ? `<ul>${linked.map((c) => `<li>${escapeHtml(c.name)}</li>`).join('')}</ul>` : '<p>No hay personajes designados.</p>'}
+  `;
+}
+
+function renderHistoryClans() {
+  if (!historyClansList || !selectedHistoryTypeId) return;
+  const typeEntry = historyTypesData[selectedHistoryTypeId];
+  const clans = Object.entries(typeEntry?.clans || {});
+  historyClansList.innerHTML = `
+    <div class="history-section-header">
+      <h3>Clanes de ${escapeHtml(typeEntry?.name || '')}</h3>
+      <button id="add-clan-btn" class="save-character-btn" type="button">Agregar clan</button>
+    </div>
+    ${clans.length ? clans.map(([clanId, clan]) => `<article class="history-item ${selectedHistoryClanId===clanId?'selected':''}">
+      <button class="menu-btn history-link-btn" type="button" data-history-clan-id="${escapeHtml(clanId)}">${escapeHtml(clan.name)}</button>
+      <textarea data-history-clan-story-id="${escapeHtml(clanId)}" placeholder="Historia del clan">${escapeHtml(clan.story || '')}</textarea>
+      <button class="save-character-btn" data-save-clan-story-id="${escapeHtml(clanId)}" type="button">Guardar historia</button>
+      <button class="delete-character-btn" data-delete-clan-id="${escapeHtml(clanId)}" type="button">Eliminar clan</button>
+    </article>`).join('') : '<p>Sin clanes.</p>'}
+  `;
+}
+
+function renderHistoryTypes() {
+  if (!historyTypesList) return;
+  const types = Object.entries(historyTypesData);
+  historyTypesList.innerHTML = types.length ? types.map(([typeId, type]) => `<article class="history-item ${selectedHistoryTypeId===typeId?'selected':''}">
+    <button class="menu-btn history-link-btn" type="button" data-history-type-id="${escapeHtml(typeId)}">${escapeHtml(type.name)}</button>
+    <textarea data-history-type-description-id="${escapeHtml(typeId)}" placeholder="Descripción del tipo">${escapeHtml(type.description || '')}</textarea>
+    <div class="history-inline-actions">
+      <button class="save-character-btn" data-save-type-description-id="${escapeHtml(typeId)}" type="button">Guardar descripción</button>
+      <button class="delete-character-btn" data-delete-type-id="${escapeHtml(typeId)}" type="button">Eliminar tipo</button>
+    </div>
+  </article>`).join('') : '<p>No hay tipos cargados.</p>';
+
+  if (selectedHistoryTypeId) renderHistoryClans();
+}
+
+
+
 async function signInWithGoogle() {
   try {
     await auth.signInWithPopup(googleProvider);
@@ -1483,6 +1550,70 @@ addCharacterButton.textContent = 'Crear personaje';
 addCharacterButton.addEventListener('click', openForm);
 randomCharacterButton.addEventListener('click', createRandomCharacters);
 createCharacterForm();
+
+showTypesButton?.addEventListener('click', () => {
+  renderHistoryTypes();
+});
+
+historyTypesList?.addEventListener('click', async (event) => {
+  const typeBtn = event.target.closest('[data-history-type-id]');
+  const saveDescBtn = event.target.closest('[data-save-type-description-id]');
+  const delTypeBtn = event.target.closest('[data-delete-type-id]');
+  if (typeBtn) {
+    selectedHistoryTypeId = typeBtn.dataset.historyTypeId;
+    selectedHistoryClanId = '';
+    renderHistoryTypes();
+    historyCharactersList.innerHTML = '';
+    return;
+  }
+  if (saveDescBtn) {
+    const typeId = saveDescBtn.dataset.saveTypeDescriptionId;
+    const textarea = historyTypesList.querySelector(`[data-history-type-description-id="${typeId}"]`);
+    await historyTypesRef.child(typeId).update({ description: textarea.value.trim() });
+  }
+  if (delTypeBtn) {
+    await historyTypesRef.child(delTypeBtn.dataset.deleteTypeId).remove();
+    if (selectedHistoryTypeId === delTypeBtn.dataset.deleteTypeId) {
+      selectedHistoryTypeId = '';
+      historyClansList.innerHTML = '';
+      historyCharactersList.innerHTML = '';
+    }
+  }
+});
+
+historyClansList?.addEventListener('click', async (event) => {
+  const clanBtn = event.target.closest('[data-history-clan-id]');
+  const addClanBtn = event.target.closest('#add-clan-btn');
+  const saveStoryBtn = event.target.closest('[data-save-clan-story-id]');
+  const delClanBtn = event.target.closest('[data-delete-clan-id]');
+  const typeEntry = historyTypesData[selectedHistoryTypeId];
+  if (!typeEntry) return;
+  if (clanBtn) {
+    selectedHistoryClanId = clanBtn.dataset.historyClanId;
+    const clan = typeEntry.clans?.[selectedHistoryClanId];
+    renderHistoryClans();
+    renderHistoryCharacters(typeEntry.name, clan?.name || '');
+    return;
+  }
+  if (addClanBtn) {
+    const name = prompt('Nombre del clan');
+    if (!name) return;
+    await historyTypesRef.child(`${selectedHistoryTypeId}/clans/${crypto.randomUUID()}`).set({ name: name.trim(), story: '' });
+  }
+  if (saveStoryBtn) {
+    const clanId = saveStoryBtn.dataset.saveClanStoryId;
+    const textarea = historyClansList.querySelector(`[data-history-clan-story-id="${clanId}"]`);
+    await historyTypesRef.child(`${selectedHistoryTypeId}/clans/${clanId}`).update({ story: textarea.value.trim() });
+  }
+  if (delClanBtn) {
+    const clanId = delClanBtn.dataset.deleteClanId;
+    const clanName = typeEntry.clans?.[clanId]?.name || '';
+    const linked = characters.some((c) => c.type === typeEntry.name && c.clan === clanName);
+    if (linked) { alert('No se puede eliminar: tiene personajes designados.'); return; }
+    await historyTypesRef.child(`${selectedHistoryTypeId}/clans/${clanId}`).remove();
+    if (selectedHistoryClanId === clanId) historyCharactersList.innerHTML = '';
+  }
+});
 renderGallery();
 renderDeckBuilder();
 renderOnlineUsers();
@@ -1498,6 +1629,12 @@ usersRef.on('value', (snapshot) => {
   users = snapshot.val() || {};
   renderOnlineUsers();
   renderBattleHistory();
+});
+
+
+historyTypesRef.on('value', (snapshot) => {
+  historyTypesData = normalizeHistoryTypes(snapshot.val() || {});
+  renderHistoryTypes();
 });
 
 battleHistoryRef.on('value', (snapshot) => {
