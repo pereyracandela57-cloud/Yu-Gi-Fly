@@ -55,10 +55,8 @@ const battleSurrenderVictoryModal = document.querySelector('#battle-surrender-vi
 const battleSurrenderVictoryText = document.querySelector('#battle-surrender-victory-text');
 const battleSurrenderVictoryCloseButton = document.querySelector('#battle-surrender-victory-close-btn');
 const battleHistoryList = document.querySelector('#battle-history-list');
-const showTypesButton = document.querySelector('#show-types-btn');
 const historyTypesList = document.querySelector('#history-types-list');
 const historyClansList = document.querySelector('#history-clans-list');
-const historyCharactersList = document.querySelector('#history-characters-list');
 
 const characterTypes = [
   { type: 'Brujas', clans: ['Luna Carmesí', 'Hijas del Caldero', 'Las Espinas Negras', 'Coven Eclipse'] },
@@ -157,7 +155,6 @@ const shownSurrenderVictoryBySessionId = new Set();
 const previousBattleStatusBySessionId = {};
 let historyTypesData = {};
 let selectedHistoryTypeId = '';
-let selectedHistoryClanId = '';
 
 buttons.forEach((button) => {
   button.addEventListener('click', () => {
@@ -1409,48 +1406,53 @@ function normalizeHistoryTypes(rawData) {
   return seeded;
 }
 
-function renderHistoryCharacters(typeName, clanName) {
-  if (!historyCharactersList) return;
-  const linked = characters.filter((c) => c.type === typeName && c.clan === clanName);
-  historyCharactersList.innerHTML = `
-    <h3>Personajes ligados a ${escapeHtml(clanName)}</h3>
-    ${linked.length ? `<ul>${linked.map((c) => `<li>${escapeHtml(c.name)}</li>`).join('')}</ul>` : '<p>No hay personajes designados.</p>'}
-  `;
-}
-
 function renderHistoryClans() {
-  if (!historyClansList || !selectedHistoryTypeId) return;
+  if (!historyClansList) return;
+  if (!selectedHistoryTypeId) {
+    historyClansList.innerHTML = '';
+    return;
+  }
+
   const typeEntry = historyTypesData[selectedHistoryTypeId];
   const clans = Object.entries(typeEntry?.clans || {});
   historyClansList.innerHTML = `
     <div class="history-section-header">
-      <h3>Clanes de ${escapeHtml(typeEntry?.name || '')}</h3>
+      <button class="cancel-character-btn" id="back-to-types-btn" type="button">← Volver al listado</button>
+      <h3>${escapeHtml(typeEntry?.name || '')}</h3>
       <button id="add-clan-btn" class="save-character-btn" type="button">Agregar clan</button>
     </div>
-    ${clans.length ? clans.map(([clanId, clan]) => `<article class="history-item ${selectedHistoryClanId===clanId?'selected':''}">
-      <button class="menu-btn history-link-btn" type="button" data-history-clan-id="${escapeHtml(clanId)}">${escapeHtml(clan.name)}</button>
-      <textarea data-history-clan-story-id="${escapeHtml(clanId)}" placeholder="Historia del clan">${escapeHtml(clan.story || '')}</textarea>
-      <button class="save-character-btn" data-save-clan-story-id="${escapeHtml(clanId)}" type="button">Guardar historia</button>
-      <button class="delete-character-btn" data-delete-clan-id="${escapeHtml(clanId)}" type="button">Eliminar clan</button>
-    </article>`).join('') : '<p>Sin clanes.</p>'}
+    <article class="history-item selected">
+      <h4>Descripción del tipo</h4>
+      <textarea data-history-type-description-id="${escapeHtml(selectedHistoryTypeId)}" placeholder="Descripción del tipo">${escapeHtml(typeEntry?.description || '')}</textarea>
+      <button class="save-character-btn" data-save-type-description-id="${escapeHtml(selectedHistoryTypeId)}" type="button">Guardar descripción</button>
+    </article>
+    <h4>Clanes</h4>
+    ${clans.length ? `<ul class="history-simple-list">${clans.map(([clanId, clan]) => `<li class="history-item">
+      <p><strong>${escapeHtml(clan.name)}</strong></p>
+      <textarea data-history-clan-story-id="${escapeHtml(clanId)}" placeholder="Descripción del clan">${escapeHtml(clan.story || '')}</textarea>
+      <div class="history-inline-actions">
+        <button class="save-character-btn" data-save-clan-story-id="${escapeHtml(clanId)}" type="button">Guardar descripción</button>
+        <button class="delete-character-btn" data-delete-clan-id="${escapeHtml(clanId)}" type="button">Eliminar clan</button>
+      </div>
+    </li>`).join('')}</ul>` : '<p>Sin clanes.</p>'}
   `;
 }
 
 function renderHistoryTypes() {
   if (!historyTypesList) return;
   const types = Object.entries(historyTypesData);
-  historyTypesList.innerHTML = types.length ? types.map(([typeId, type]) => `<article class="history-item ${selectedHistoryTypeId===typeId?'selected':''}">
-    <button class="menu-btn history-link-btn" type="button" data-history-type-id="${escapeHtml(typeId)}">${escapeHtml(type.name)}</button>
-    <textarea data-history-type-description-id="${escapeHtml(typeId)}" placeholder="Descripción del tipo">${escapeHtml(type.description || '')}</textarea>
-    <div class="history-inline-actions">
-      <button class="save-character-btn" data-save-type-description-id="${escapeHtml(typeId)}" type="button">Guardar descripción</button>
-      <button class="delete-character-btn" data-delete-type-id="${escapeHtml(typeId)}" type="button">Eliminar tipo</button>
-    </div>
-  </article>`).join('') : '<p>No hay tipos cargados.</p>';
 
-  if (selectedHistoryTypeId) renderHistoryClans();
+  if (selectedHistoryTypeId) {
+    historyTypesList.innerHTML = '';
+    renderHistoryClans();
+    return;
+  }
+
+  historyClansList.innerHTML = '';
+  historyTypesList.innerHTML = types.length
+    ? `<ul class="history-simple-list">${types.map(([typeId, type]) => `<li><button class="menu-btn history-link-btn" type="button" data-history-type-id="${escapeHtml(typeId)}">${escapeHtml(type.name)}</button></li>`).join('')}</ul>`
+    : '<p>No hay tipos cargados.</p>';
 }
-
 
 
 async function signInWithGoogle() {
@@ -1555,54 +1557,36 @@ addCharacterButton.addEventListener('click', openForm);
 randomCharacterButton.addEventListener('click', createRandomCharacters);
 createCharacterForm();
 
-showTypesButton?.addEventListener('click', () => {
-  renderHistoryTypes();
-});
-
 historyTypesList?.addEventListener('click', async (event) => {
   const typeBtn = event.target.closest('[data-history-type-id]');
-  const saveDescBtn = event.target.closest('[data-save-type-description-id]');
-  const delTypeBtn = event.target.closest('[data-delete-type-id]');
   if (typeBtn) {
     selectedHistoryTypeId = typeBtn.dataset.historyTypeId;
-    selectedHistoryClanId = '';
     renderHistoryTypes();
-    historyCharactersList.innerHTML = '';
-    return;
-  }
-  if (saveDescBtn) {
-    const typeId = saveDescBtn.dataset.saveTypeDescriptionId;
-    const textarea = historyTypesList.querySelector(`[data-history-type-description-id="${typeId}"]`);
-    await historyTypesRef.child(typeId).update({ description: textarea.value.trim() });
-  }
-  if (delTypeBtn) {
-    await historyTypesRef.child(delTypeBtn.dataset.deleteTypeId).remove();
-    if (selectedHistoryTypeId === delTypeBtn.dataset.deleteTypeId) {
-      selectedHistoryTypeId = '';
-      historyClansList.innerHTML = '';
-      historyCharactersList.innerHTML = '';
-    }
   }
 });
 
 historyClansList?.addEventListener('click', async (event) => {
-  const clanBtn = event.target.closest('[data-history-clan-id]');
+  const backBtn = event.target.closest('#back-to-types-btn');
   const addClanBtn = event.target.closest('#add-clan-btn');
+  const saveTypeDescBtn = event.target.closest('[data-save-type-description-id]');
   const saveStoryBtn = event.target.closest('[data-save-clan-story-id]');
   const delClanBtn = event.target.closest('[data-delete-clan-id]');
   const typeEntry = historyTypesData[selectedHistoryTypeId];
   if (!typeEntry) return;
-  if (clanBtn) {
-    selectedHistoryClanId = clanBtn.dataset.historyClanId;
-    const clan = typeEntry.clans?.[selectedHistoryClanId];
-    renderHistoryClans();
-    renderHistoryCharacters(typeEntry.name, clan?.name || '');
+  if (backBtn) {
+    selectedHistoryTypeId = '';
+    renderHistoryTypes();
     return;
   }
   if (addClanBtn) {
     const name = prompt('Nombre del clan');
     if (!name) return;
     await historyTypesRef.child(`${selectedHistoryTypeId}/clans/${crypto.randomUUID()}`).set({ name: name.trim(), story: '' });
+  }
+  if (saveTypeDescBtn) {
+    const typeId = saveTypeDescBtn.dataset.saveTypeDescriptionId;
+    const textarea = historyClansList.querySelector(`[data-history-type-description-id="${typeId}"]`);
+    await historyTypesRef.child(typeId).update({ description: textarea.value.trim() });
   }
   if (saveStoryBtn) {
     const clanId = saveStoryBtn.dataset.saveClanStoryId;
@@ -1615,7 +1599,6 @@ historyClansList?.addEventListener('click', async (event) => {
     const linked = characters.some((c) => c.type === typeEntry.name && c.clan === clanName);
     if (linked) { alert('No se puede eliminar: tiene personajes designados.'); return; }
     await historyTypesRef.child(`${selectedHistoryTypeId}/clans/${clanId}`).remove();
-    if (selectedHistoryClanId === clanId) historyCharactersList.innerHTML = '';
   }
 });
 renderGallery();
