@@ -963,6 +963,31 @@ function closeProfile() {
   addCharacterButton.classList.remove('hidden');
 }
 
+async function deleteCharacter(characterId) {
+  if (!characterId) {
+    return;
+  }
+
+  const character = characters.find((entry) => entry.id === characterId);
+  if (!character) {
+    return;
+  }
+
+  const shouldDelete = window.confirm(`¿Seguro que quieres eliminar a ${character.name}? Esta acción no se puede deshacer.`);
+  if (!shouldDelete) {
+    return;
+  }
+
+  try {
+    await getCharacterRef(characterId).remove();
+    setSyncStatus('Personaje eliminado correctamente.', 'success');
+    closeProfile();
+  } catch (error) {
+    console.error('No se pudo eliminar el personaje en Firebase:', error);
+    setSyncStatus('No se pudo eliminar el personaje. Revisa la conexión o las reglas de Firebase.', 'error');
+  }
+}
+
 function updateProfileClanOptions(selectedClan = '') {
   const typeSelect = document.querySelector('#profile-character-type');
   const clanSelect = document.querySelector('#profile-character-clan');
@@ -1059,6 +1084,7 @@ function renderProfile(character) {
       </div>
       <div class="form-actions">
         <button class="cancel-character-btn" type="button">Cancelar</button>
+        <button class="delete-character-btn" type="button">Eliminar</button>
         <button class="save-character-btn" type="submit">Guardar cambios</button>
       </div>
     </form>
@@ -1077,6 +1103,9 @@ function renderProfile(character) {
 
   document.querySelector('.back-to-gallery-btn').addEventListener('click', closeProfile);
   document.querySelector('.profile-form .cancel-character-btn').addEventListener('click', closeProfile);
+  document.querySelector('.profile-form .delete-character-btn').addEventListener('click', () => {
+    deleteCharacter(activeProfileId);
+  });
   document.querySelector('#profile-character-image-url').addEventListener('input', (event) => {
     updateProfileImagePreview(event.target.value.trim());
   });
