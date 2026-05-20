@@ -1176,3 +1176,6 @@ body::before {
 .history-inline-actions { display:flex; gap:.5rem; flex-wrap:wrap; }
 .history-admin textarea { width:100%; min-height:84px; background:#201a14; color:#efe6d2; border:1px solid #7d5c1d; border-radius:8px; padding:.5rem; }
 .history-section-header { display:flex; justify-content:space-between; align-items:center; gap:1rem; }
+
+.history-simple-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .75rem; }
+.history-simple-list li { list-style: none; }
