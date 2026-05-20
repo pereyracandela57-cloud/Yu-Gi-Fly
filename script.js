@@ -306,10 +306,6 @@ function updateTypeColorPreview() {
   colorPreview.innerHTML = `Color asignado: <strong>${typeSelect.value}</strong>`;
 }
 
-function getClanLabel(clan) {
-  return clan ? clan : 'Sin clan';
-}
-
 function renderSharedCharacterCard(character, options = {}) {
   const {
     dataAttribute = 'data-character-id',
@@ -343,7 +339,7 @@ function renderSharedCharacterCard(character, options = {}) {
         <span class="character-card-footer">
           <span class="character-card-tags">
             <span class="character-type-clan-tag">${escapeHtml(character.type)}</span>
-            <span class="character-type-clan-tag">${escapeHtml(getClanLabel(character.clan))}</span>
+            ${character.clan ? `<span class="character-type-clan-tag">${escapeHtml(character.clan)}</span>` : ''}
           </span>
           <span class="stats-list" aria-label="Atributos de ${safeName}">
             <span><strong>F</strong>: ${escapeHtml(character.strength)}</span>
