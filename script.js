@@ -1416,10 +1416,40 @@ function openExperienceModal(character) {
   experienceModalState = { overlay };
 }
 
+
+function getAvailableTypeEntries() {
+  const historyEntries = Object.values(historyTypesData || {})
+    .map((entry) => ({
+      type: (entry?.name || '').trim(),
+      clans: Object.values(entry?.clans || {})
+        .map((clan) => (clan?.name || '').trim())
+        .filter(Boolean),
+    }))
+    .filter((entry) => entry.type);
+
+  return historyEntries.length ? historyEntries : characterTypes;
+}
+
+function repopulateCreateTypeOptions() {
+  const typeSelect = document.querySelector('#character-type');
+  if (!typeSelect) return;
+
+  const previousValue = typeSelect.value;
+  const typeEntries = getAvailableTypeEntries();
+  typeSelect.innerHTML = '';
+  typeSelect.append(createOption('', 'Selecciona un tipo'));
+  typeEntries.forEach((entry) => typeSelect.append(createOption(entry.type, entry.type)));
+
+  if (typeEntries.some((entry) => entry.type === previousValue)) {
+    typeSelect.value = previousValue;
+  }
+
+  updateClanOptions();
+}
 function updateProfileClanOptions(selectedClan = '') {
   const typeSelect = document.querySelector('#profile-character-type');
   const clanSelect = document.querySelector('#profile-character-clan');
-  const selectedType = characterTypes.find((entry) => entry.type === typeSelect.value);
+  const selectedType = getAvailableTypeEntries().find((entry) => entry.type === typeSelect.value);
 
   clanSelect.innerHTML = '';
   if (!selectedType) {
@@ -1580,7 +1610,7 @@ function renderProfile(character) {
   profile.classList.remove('hidden');
 
   const profileTypeSelect = document.querySelector('#profile-character-type');
-  characterTypes.forEach((entry) => profileTypeSelect.append(createOption(entry.type, entry.type)));
+  getAvailableTypeEntries().forEach((entry) => profileTypeSelect.append(createOption(entry.type, entry.type)));
   profileTypeSelect.value = character.type;
   updateProfileClanOptions(character.clan);
   profileTypeSelect.addEventListener('change', () => updateProfileClanOptions());
@@ -1728,7 +1758,7 @@ function openProfile(characterId) {
 function updateClanOptions() {
   const typeSelect = document.querySelector('#character-type');
   const clanSelect = document.querySelector('#character-clan');
-  const selectedType = characterTypes.find((entry) => entry.type === typeSelect.value);
+  const selectedType = getAvailableTypeEntries().find((entry) => entry.type === typeSelect.value);
 
   updateTypeColorPreview();
   clanSelect.innerHTML = '';
@@ -1895,7 +1925,7 @@ function createCharacterForm() {
   );
 
   const typeSelect = document.querySelector('#character-type');
-  characterTypes.forEach((entry) => typeSelect.append(createOption(entry.type, entry.type)));
+  repopulateCreateTypeOptions();
   typeSelect.addEventListener('change', updateClanOptions);
 
   document.querySelector('#character-image-url').addEventListener('input', updatePreview);
@@ -2200,6 +2230,7 @@ usersRef.on('value', (snapshot) => {
 historyTypesRef.on('value', (snapshot) => {
   historyTypesData = normalizeHistoryTypes(snapshot.val() || {});
   renderHistoryTypes();
+  repopulateCreateTypeOptions();
 });
 
 battleHistoryRef.on('value', (snapshot) => {
