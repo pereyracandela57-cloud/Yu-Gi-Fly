@@ -197,6 +197,19 @@ body::before {
   outline: 2px solid #2ecc71;
 }
 
+.character-card.is-development-mode {
+  box-shadow:
+    0 0 0 2px rgba(255, 214, 102, 0.95),
+    0 0 16px rgba(255, 215, 0, 0.95),
+    0 0 34px rgba(255, 196, 0, 0.7);
+  animation: developmentGlow 1.8s ease-in-out infinite alternate;
+}
+
+@keyframes developmentGlow {
+  from { filter: saturate(1.05) brightness(1); }
+  to { filter: saturate(1.2) brightness(1.08); }
+}
+
 @media (max-width: 1400px) {
   .deck-grid {
     grid-template-columns: repeat(6, minmax(0, 1fr));

@@ -169,6 +169,23 @@ let selectedHistoryTypeId = '';
 
 let historyTypeContextMenuState = null;
 let experienceModalState = null;
+const CHARACTER_DEVELOPMENT_MODE = {
+  PENDING: 'pending-battle',
+  READY_TO_EDIT: 'ready-to-edit',
+};
+
+function getCharacterStatValue(character, attribute) {
+  return Number.parseInt(character?.[attribute] ?? '0', 10) || 0;
+}
+
+function isCharacterAtMaxBaseStats(character) {
+  return ['magic', 'strength', 'intelligence', 'speed'].every((attribute) => getCharacterStatValue(character, attribute) >= 100);
+}
+
+function getCharacterDevelopmentProgress(userId, character) {
+  const cardExperience = users[userId]?.experiencePoints?.byCharacter?.[character.id] || {};
+  return cardExperience.developmentMode || null;
+}
 
 function closeHistoryTypeContextMenu() {
   if (!historyTypeContextMenuState) return;
@@ -387,6 +404,8 @@ function renderSharedCharacterCard(character, options = {}) {
   } = options;
 
   const safeName = escapeHtml(character.name || 'Carta');
+  const developmentProgress = currentUserId ? getCharacterDevelopmentProgress(currentUserId, character) : null;
+  const isInDevelopmentMode = Boolean(developmentProgress);
   const safeImage = escapeHtml(character.image || '');
   const safeDataValue = escapeHtml(dataValue || '');
   const imageMarkup = character.image
@@ -399,7 +418,7 @@ function renderSharedCharacterCard(character, options = {}) {
     : `type="button" ${dataAttribute}="${safeDataValue}" aria-label="${escapeHtml(ariaLabel)}"`;
 
   return `
-    <${tagName} class="character-card character-gallery-card ${extraClasses}" ${interactiveAttributes} style="${getTypeColorStyles(character.type)}${inlineStyle}">
+    <${tagName} class="character-card character-gallery-card ${extraClasses} ${isInDevelopmentMode ? 'is-development-mode' : ''}" ${interactiveAttributes} style="${getTypeColorStyles(character.type)}${inlineStyle}">
       ${footerPrefix}
       <span class="character-card-layout">
         <span class="character-card-header">${safeName}</span>
@@ -819,19 +838,40 @@ async function registerExperiencePointForUser(userId, isPositive) {
   const mainIds = Array.isArray(deckData.mainIds) ? deckData.mainIds.filter(Boolean) : [];
   if (!mainIds.length) return;
 
-  const selectedCardId = mainIds[Math.floor(Math.random() * mainIds.length)];
+  const forcedCard = characters.find((entry) => {
+    const development = getCharacterDevelopmentProgress(userId, entry);
+    return development?.status === CHARACTER_DEVELOPMENT_MODE.PENDING;
+  });
+  const selectedCardId = forcedCard?.id || mainIds[Math.floor(Math.random() * mainIds.length)];
   if (!selectedCardId) return;
+  const selectedCharacter = characters.find((entry) => entry.id === selectedCardId) || null;
+  const shouldActivateDevelopmentMode = selectedCharacter
+    && isCharacterAtMaxBaseStats(selectedCharacter)
+    && !forcedCard;
+  const pointDelta = forcedCard ? 5 : 1;
 
   await usersRef.child(userId).child('experiencePoints').transaction((currentValue) => {
     const current = currentValue || {};
     const byCharacter = current.byCharacter || {};
     const currentCard = byCharacter[selectedCardId] || { positive: 0, negative: 0, total: 0 };
-    const positive = (current.positive || 0) + (isPositive ? 1 : 0);
-    const negative = (current.negative || 0) + (isPositive ? 0 : 1);
+    const positive = (current.positive || 0) + (isPositive ? pointDelta : 0);
+    const negative = (current.negative || 0) + (isPositive ? 0 : pointDelta);
     const updatedCard = {
-      positive: (currentCard.positive || 0) + (isPositive ? 1 : 0),
-      negative: (currentCard.negative || 0) + (isPositive ? 0 : 1),
-      total: (currentCard.total || 0) + (isPositive ? 1 : -1),
+      positive: (currentCard.positive || 0) + (isPositive ? pointDelta : 0),
+      negative: (currentCard.negative || 0) + (isPositive ? 0 : pointDelta),
+      total: (currentCard.total || 0) + (isPositive ? pointDelta : -pointDelta),
+      developmentMode: shouldActivateDevelopmentMode
+        ? {
+          status: CHARACTER_DEVELOPMENT_MODE.PENDING,
+          activatedAt: getTimestamp(),
+        }
+        : (forcedCard
+          ? {
+            status: CHARACTER_DEVELOPMENT_MODE.READY_TO_EDIT,
+            resolvedAt: getTimestamp(),
+            lastOutcome: isPositive ? 'positive' : 'negative',
+          }
+          : (currentCard.developmentMode || null)),
     };
     return {
       positive,
@@ -843,6 +883,10 @@ async function registerExperiencePointForUser(userId, isPositive) {
       updatedAt: getTimestamp(),
     };
   });
+
+  if (shouldActivateDevelopmentMode) {
+    await userDecksRef.child(userId).child('mainIds').set([selectedCardId]);
+  }
 }
 
 function shuffleList(values) {
@@ -1283,6 +1327,9 @@ function updateProfileImagePreview(imageSource) {
 
 function renderProfile(character) {
   const profile = document.querySelector('.character-profile');
+  const developmentProgress = currentUserId ? getCharacterDevelopmentProgress(currentUserId, character) : null;
+  const canOvercapStats = developmentProgress?.status === CHARACTER_DEVELOPMENT_MODE.READY_TO_EDIT;
+  const profileStatMax = canOvercapStats ? 999 : 100;
   const imagePreview = character.image
     ? `<img id="profile-image-preview" class="preview-image" src="${escapeHtml(character.image)}" alt="Imagen actual de ${escapeHtml(character.name)}">`
     : '<img id="profile-image-preview" class="preview-image hidden" alt="Imagen actual del personaje">';
@@ -1315,19 +1362,19 @@ function renderProfile(character) {
           <div class="stats-grid">
             <label>
               Puntos de magia
-              <input name="magic" type="number" min="1" max="100" required value="${escapeHtml(character.magic)}">
+              <input name="magic" type="number" min="1" max="${profileStatMax}" required value="${escapeHtml(character.magic)}">
             </label>
             <label>
               Puntos de fuerza
-              <input name="strength" type="number" min="1" max="100" required value="${escapeHtml(character.strength)}">
+              <input name="strength" type="number" min="1" max="${profileStatMax}" required value="${escapeHtml(character.strength)}">
             </label>
             <label>
               Puntos de inteligencia
-              <input name="intelligence" type="number" min="1" max="100" required value="${escapeHtml(character.intelligence)}">
+              <input name="intelligence" type="number" min="1" max="${profileStatMax}" required value="${escapeHtml(character.intelligence)}">
             </label>
             <label>
               Puntos de velocidad
-              <input name="speed" type="number" min="1" max="100" required value="${escapeHtml(character.speed)}">
+              <input name="speed" type="number" min="1" max="${profileStatMax}" required value="${escapeHtml(character.speed)}">
             </label>
           </div>
           <label>
@@ -1349,6 +1396,7 @@ function renderProfile(character) {
         </aside>
       </div>
       <div class="form-actions">
+        ${developmentProgress ? `<p class="deck-lock-note">MODO DESARROLLO DE PERSONAJE: ${developmentProgress.status === CHARACTER_DEVELOPMENT_MODE.PENDING ? 'en espera de la próxima batalla (carta principal única).' : 'resultado aplicado, ahora debes editar atributos.'}</p>` : ''}
         <button class="save-character-btn" type="button" data-open-experience>PUNTOS DE EXPERIENCIA</button>
         <button class="cancel-character-btn" type="button">Cancelar</button>
         <button class="delete-character-btn" type="button">Eliminar</button>
