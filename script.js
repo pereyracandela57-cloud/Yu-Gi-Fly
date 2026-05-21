@@ -854,24 +854,17 @@ async function registerExperiencePointForUser(userId, isPositive) {
     const current = currentValue || {};
     const byCharacter = current.byCharacter || {};
     const currentCard = byCharacter[selectedCardId] || { positive: 0, negative: 0, total: 0 };
-    const positive = (current.positive || 0) + (isPositive ? pointDelta : 0);
-    const negative = (current.negative || 0) + (isPositive ? 0 : pointDelta);
+    const positive = (current.positive || 0) + (isPositive ? 1 : 0);
+    const negative = (current.negative || 0) + (isPositive ? 0 : 1);
+    const cardPositive = currentCard.positive || 0;
+    const cardNegative = currentCard.negative || 0;
+    if ((cardPositive + cardNegative) >= 5) {
+      return current;
+    }
     const updatedCard = {
-      positive: (currentCard.positive || 0) + (isPositive ? pointDelta : 0),
-      negative: (currentCard.negative || 0) + (isPositive ? 0 : pointDelta),
-      total: (currentCard.total || 0) + (isPositive ? pointDelta : -pointDelta),
-      developmentMode: shouldActivateDevelopmentMode
-        ? {
-          status: CHARACTER_DEVELOPMENT_MODE.PENDING,
-          activatedAt: getTimestamp(),
-        }
-        : (forcedCard
-          ? {
-            status: CHARACTER_DEVELOPMENT_MODE.READY_TO_EDIT,
-            resolvedAt: getTimestamp(),
-            lastOutcome: isPositive ? 'positive' : 'negative',
-          }
-          : (currentCard.developmentMode || null)),
+      positive: cardPositive + (isPositive ? 1 : 0),
+      negative: cardNegative + (isPositive ? 0 : 1),
+      total: (currentCard.total || 0) + (isPositive ? 1 : -1),
     };
     return {
       positive,
@@ -1266,6 +1259,18 @@ async function deleteCharacter(characterId) {
 
 
 
+
+function getCharacterExperience(characterId) {
+  const experiencePoints = users[currentUserId]?.experiencePoints || {};
+  const cardExperience = experiencePoints.byCharacter?.[characterId] || {};
+  const positive = Number.parseInt(cardExperience.positive ?? '0', 10) || 0;
+  const negative = Number.parseInt(cardExperience.negative ?? '0', 10) || 0;
+  const total = Number.parseInt(cardExperience.total ?? String(positive - negative), 10) || 0;
+  const available = positive + negative;
+  const canSpend = available >= 5;
+  return { positive, negative, total, available, canSpend };
+}
+
 function closeExperienceModal() {
   if (!experienceModalState) return;
   experienceModalState.overlay.remove();
@@ -1274,11 +1279,7 @@ function closeExperienceModal() {
 
 function openExperienceModal(character) {
   closeExperienceModal();
-  const experiencePoints = users[currentUserId]?.experiencePoints || {};
-  const cardExperience = experiencePoints.byCharacter?.[character.id] || {};
-  const positive = Number.parseInt(cardExperience.positive ?? '0', 10) || 0;
-  const negative = Number.parseInt(cardExperience.negative ?? '0', 10) || 0;
-  const total = Number.parseInt(cardExperience.total ?? String(positive - negative), 10) || 0;
+  const { positive, negative, total, available, canSpend } = getCharacterExperience(character.id);
 
   const overlay = document.createElement('div');
   overlay.className = 'challenge-modal';
@@ -1289,6 +1290,8 @@ function openExperienceModal(character) {
       <p><strong class="xp-positive">Puntos positivos: +${positive}</strong></p>
       <p><strong class="xp-negative">Puntos negativos: -${negative}</strong></p>
       <p><strong>Total acumulado: ${total}</strong></p>
+      <p><strong>Puntos disponibles para desbloquear edición: ${available}/5</strong></p>
+      <p>${canSpend ? "Puedes usar estos puntos para editar atributos ahora." : "Necesitas 5 puntos (positivos+negativos) para habilitar edición."}</p>
       <div class="challenge-actions">
         <button class="save-character-btn" data-close-experience-modal type="button">Cerrar</button>
       </div>
@@ -1325,6 +1328,19 @@ function updateProfileImagePreview(imageSource) {
   preview.classList.toggle('hidden', !imageSource);
 }
 
+function getCharacterExperienceState(characterId) {
+  const experiencePoints = users[currentUserId]?.experiencePoints || {};
+  const cardExperience = experiencePoints.byCharacter?.[characterId] || {};
+  const positive = Number.parseInt(cardExperience.positive ?? '0', 10) || 0;
+  const negative = Number.parseInt(cardExperience.negative ?? '0', 10) || 0;
+  const total = Number.parseInt(cardExperience.total ?? String(positive - negative), 10) || 0;
+  return { positive, negative, total };
+}
+
+function canEditProfileIdentityByExperience(totalExperience) {
+  return totalExperience > 0 && totalExperience < 5;
+}
+
 function renderProfile(character) {
   const profile = document.querySelector('.character-profile');
   const developmentProgress = currentUserId ? getCharacterDevelopmentProgress(currentUserId, character) : null;
@@ -1335,9 +1351,15 @@ function renderProfile(character) {
     : '<img id="profile-image-preview" class="preview-image hidden" alt="Imagen actual del personaje">';
 
   activeProfileId = character.id;
+  const { total: availableExperience } = getCharacterExperienceState(character.id);
+  const canEditIdentityFields = canEditProfileIdentityByExperience(availableExperience);
+  const identityLockMessage = canEditIdentityFields
+    ? ''
+    : '<p class="deck-lock-note">Nombre, Tipo, Clan, Historia e imagen se habilitan al gastar el primer punto de experiencia y se vuelven a bloquear al gastar el último de los 5 puntos.</p>';
   profile.innerHTML = `
     <button class="back-to-gallery-btn" type="button">← Volver a personajes</button>
     <form class="profile-form" style="${getTypeColorStyles(character.type)}">
+      ${(() => { const xp = getCharacterExperience(character.id); return `<p class="profile-kicker">${xp.canSpend ? `Edición desbloqueada: reparte +${xp.positive} y -${xp.negative}.` : "Rasgos bloqueados: elimina el personaje o consigue 5 puntos de experiencia."}</p>`; })()}
       <div class="profile-heading">
         <div>
           <p class="profile-kicker">Perfil del personaje</p>
@@ -1349,51 +1371,62 @@ function renderProfile(character) {
         <div class="profile-fields">
           <label>
             Nombre del personaje
-            <input name="name" type="text" required value="${escapeHtml(character.name)}">
+            <input name="name" type="text" required value="${escapeHtml(character.name)}" disabled>
           </label>
           <label>
             Tipo
-            <select id="profile-character-type" name="type" required></select>
+            <select id="profile-character-type" name="type" required disabled></select>
           </label>
           <label>
             Clan
-            <select id="profile-character-clan" name="clan"></select>
+            <select id="profile-character-clan" name="clan" disabled></select>
           </label>
           <div class="stats-grid">
             <label>
               Puntos de magia
-              <input name="magic" type="number" min="1" max="${profileStatMax}" required value="${escapeHtml(character.magic)}">
+              <input name="magic" type="number" min="1" max="100" required value="${escapeHtml(character.magic)}" disabled>
             </label>
             <label>
               Puntos de fuerza
-              <input name="strength" type="number" min="1" max="${profileStatMax}" required value="${escapeHtml(character.strength)}">
+              <input name="strength" type="number" min="1" max="100" required value="${escapeHtml(character.strength)}" disabled>
             </label>
             <label>
               Puntos de inteligencia
-              <input name="intelligence" type="number" min="1" max="${profileStatMax}" required value="${escapeHtml(character.intelligence)}">
+              <input name="intelligence" type="number" min="1" max="100" required value="${escapeHtml(character.intelligence)}" disabled>
             </label>
             <label>
               Puntos de velocidad
-              <input name="speed" type="number" min="1" max="${profileStatMax}" required value="${escapeHtml(character.speed)}">
+              <input name="speed" type="number" min="1" max="100" required value="${escapeHtml(character.speed)}" disabled>
             </label>
           </div>
           <label>
             Historia del personaje
-            <textarea name="story" rows="8" required>${escapeHtml(character.story)}</textarea>
+            <textarea name="story" rows="8" required ${canEditIdentityFields ? '' : 'disabled'}>${escapeHtml(character.story)}</textarea>
           </label>
+          ${identityLockMessage}
         </div>
         <aside class="profile-image-panel" aria-label="Imagen del personaje">
           ${imagePreview}
           <input id="profile-image-current" type="hidden" value="${escapeHtml(character.image)}">
           <label>
             URL de imagen de perfil
-            <input id="profile-character-image-url" name="imageUrl" type="url" value="${character.image && !character.image.startsWith('data:') ? escapeHtml(character.image) : ''}" placeholder="https://ejemplo.com/imagen.jpg">
+            <input id="profile-character-image-url" name="imageUrl" type="url" value="${character.image && !character.image.startsWith('data:') ? escapeHtml(character.image) : ''}" placeholder="https://ejemplo.com/imagen.jpg" ${canEditIdentityFields ? '' : 'disabled'}>
           </label>
           <label>
             Reemplazar con imagen del dispositivo
-            <input id="profile-character-image-file" name="imageFile" type="file" accept="image/*">
+            <input id="profile-character-image-file" name="imageFile" type="file" accept="image/*" ${canEditIdentityFields ? '' : 'disabled'}>
           </label>
         </aside>
+      </div>
+      <div class="stats-grid xp-adjustments">
+        <label>+ Magia <input name="addMagic" type="number" min="0" value="0"></label>
+        <label>+ Fuerza <input name="addStrength" type="number" min="0" value="0"></label>
+        <label>+ Inteligencia <input name="addIntelligence" type="number" min="0" value="0"></label>
+        <label>+ Velocidad <input name="addSpeed" type="number" min="0" value="0"></label>
+        <label>- Magia <input name="subMagic" type="number" min="0" value="0"></label>
+        <label>- Fuerza <input name="subStrength" type="number" min="0" value="0"></label>
+        <label>- Inteligencia <input name="subIntelligence" type="number" min="0" value="0"></label>
+        <label>- Velocidad <input name="subSpeed" type="number" min="0" value="0"></label>
       </div>
       <div class="form-actions">
         ${developmentProgress ? `<p class="deck-lock-note">MODO DESARROLLO DE PERSONAJE: ${developmentProgress.status === CHARACTER_DEVELOPMENT_MODE.PENDING ? 'en espera de la próxima batalla (carta principal única).' : 'resultado aplicado, ahora debes editar atributos.'}</p>` : ''}
@@ -1444,19 +1477,69 @@ function renderProfile(character) {
       return;
     }
 
+    const updatedMagic = Number.parseInt(formData.get('magic'), 10) || 0;
+    const updatedStrength = Number.parseInt(formData.get('strength'), 10) || 0;
+    const updatedIntelligence = Number.parseInt(formData.get('intelligence'), 10) || 0;
+    const updatedSpeed = Number.parseInt(formData.get('speed'), 10) || 0;
+    const previousMagic = Number.parseInt(characterToUpdate.magic, 10) || 0;
+    const previousStrength = Number.parseInt(characterToUpdate.strength, 10) || 0;
+    const previousIntelligence = Number.parseInt(characterToUpdate.intelligence, 10) || 0;
+    const previousSpeed = Number.parseInt(characterToUpdate.speed, 10) || 0;
+    const spentPoints = Math.max(0, updatedMagic - previousMagic)
+      + Math.max(0, updatedStrength - previousStrength)
+      + Math.max(0, updatedIntelligence - previousIntelligence)
+      + Math.max(0, updatedSpeed - previousSpeed);
+    const { total: availablePoints } = getCharacterExperienceState(characterToUpdate.id);
+    if (spentPoints > availablePoints) {
+      setSyncStatus(`No tienes suficientes puntos de experiencia. Disponibles: ${availablePoints}.`, 'error');
+      return;
+    }
+
     try {
+      const xp = getCharacterExperience(characterToUpdate.id);
+      if (!xp.canSpend) {
+        window.alert('Necesitas 5 puntos de experiencia (positivos + negativos) para editar este personaje.');
+        return;
+      }
+      const add = {
+        magic: Number(formData.get('addMagic') || 0),
+        strength: Number(formData.get('addStrength') || 0),
+        intelligence: Number(formData.get('addIntelligence') || 0),
+        speed: Number(formData.get('addSpeed') || 0),
+      };
+      const sub = {
+        magic: Number(formData.get('subMagic') || 0),
+        strength: Number(formData.get('subStrength') || 0),
+        intelligence: Number(formData.get('subIntelligence') || 0),
+        speed: Number(formData.get('subSpeed') || 0),
+      };
+      const addTotal = Object.values(add).reduce((a,b)=>a+b,0);
+      const subTotal = Object.values(sub).reduce((a,b)=>a+b,0);
+      if (addTotal !== xp.positive || subTotal !== xp.negative) {
+        window.alert(`Debes usar exactamente +${xp.positive} y -${xp.negative} puntos.`);
+        return;
+      }
+      const next = {
+        magic: Number(characterToUpdate.magic) + add.magic - sub.magic,
+        strength: Number(characterToUpdate.strength) + add.strength - sub.strength,
+        intelligence: Number(characterToUpdate.intelligence) + add.intelligence - sub.intelligence,
+        speed: Number(characterToUpdate.speed) + add.speed - sub.speed,
+      };
+      if (Object.values(next).some((value) => value < 1 || value > 100)) {
+        window.alert('Los atributos resultantes deben quedar entre 1 y 100.');
+        return;
+      }
       await saveCharacter({
         ...characterToUpdate,
-        name: formData.get('name').trim(),
-        type: formData.get('type'),
-        clan: formData.get('clan'),
-        magic: formData.get('magic'),
-        strength: formData.get('strength'),
-        intelligence: formData.get('intelligence'),
-        speed: formData.get('speed'),
+        magic: String(next.magic),
+        strength: String(next.strength),
+        intelligence: String(next.intelligence),
+        speed: String(next.speed),
         story: formData.get('story').trim(),
         image: profileImage || formData.get('imageUrl').trim(),
+        clan: formData.get('clan'),
       });
+      await usersRef.child(currentUserId).child(`experiencePoints/byCharacter/${characterToUpdate.id}`).set({ positive: 0, negative: 0, total: 0, updatedAt: getTimestamp() });
       closeProfile();
     } catch (error) {
       console.error('No se pudo guardar el personaje en Firebase:', error);
