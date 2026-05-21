@@ -1066,12 +1066,47 @@ body::before {
   height: 100%;
   width: 100%;
   border-radius: 10px;
-  background: linear-gradient(145deg,#cfd3da,#9aa1ad 45%,#6c7480);
-  color: #2f3540;
-  font-size: 2rem;
+  border: 1px solid rgba(212, 224, 245, 0.48);
+  background:
+    radial-gradient(circle at 18% 18%, rgba(255, 255, 255, 0.35), transparent 30%),
+    radial-gradient(circle at 82% 74%, rgba(215, 226, 243, 0.22), transparent 36%),
+    repeating-linear-gradient(
+      -32deg,
+      rgba(230, 238, 251, 0.24) 0 8px,
+      rgba(111, 123, 143, 0.2) 8px 16px
+    ),
+    linear-gradient(150deg, #bcc6d8, #8896ad 48%, #5f6d84);
+  box-shadow:
+    inset 0 0 0 1px rgba(239, 245, 255, 0.26),
+    inset 0 16px 22px rgba(255, 255, 255, 0.2),
+    inset 0 -18px 22px rgba(35, 46, 63, 0.4),
+    0 8px 16px rgba(0, 0, 0, 0.28);
 }
 
 .battle-slot-empty { opacity: .8; }
+
+.battle-facedown-owner .character-card-right {
+  position: relative;
+}
+
+.battle-facedown-owner .character-card-image,
+.battle-facedown-owner .placeholder-image {
+  filter: brightness(0.4) saturate(0.75);
+}
+
+.battle-facedown-owner .character-card-right::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(4, 6, 12, 0.28), rgba(4, 6, 12, 0.58)),
+    repeating-linear-gradient(
+      -30deg,
+      rgba(143, 156, 181, 0.08) 0 10px,
+      rgba(18, 23, 31, 0.12) 10px 20px
+    );
+}
 
 .battle-attribute-options {
   display: grid;
