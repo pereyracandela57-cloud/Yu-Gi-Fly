@@ -1037,33 +1037,52 @@ async function resolveAttack(session, attackerSlotId, targetSlotId, attackerAttr
   const players = getBattlePlayers(session);
   const nextTurnUid = players.find((uid) => uid !== session.currentTurnUid) || session.currentTurnUid;
   let loserCardId = '';
+  const destroyedCardIds = new Set();
   let statPenaltyMessage = '';
+  let attackerDestroyedByExhaustion = false;
+  let targetSurvived = true;
+
+  const attackerModifiers = { ...(updatedModifiers[attackerSlot.cardId] || {}) };
+  const previousAttackPenalty = Number.parseInt(attackerModifiers[attackerAttribute] ?? '0', 10) || 0;
+  const attackPenalty = 5;
+  attackerModifiers[attackerAttribute] = previousAttackPenalty - attackPenalty;
+  updatedModifiers[attackerSlot.cardId] = attackerModifiers;
+  const attackerResultingValue = getStatValue(attackerCard, attackerAttribute) + attackerModifiers[attackerAttribute];
+  statPenaltyMessage = ` ${attackerCard.name} pierde ${attackPenalty} puntos en ${attackerAttribute} por atacar y queda en ${Math.max(0, attackerResultingValue)} durante la batalla.`;
 
   if (attackerValue < targetValue) {
-    const penalty = Math.floor(targetValue / 2);
-    const attackerModifiers = { ...(updatedModifiers[attackerSlot.cardId] || {}) };
-    const previousPenalty = Number.parseInt(attackerModifiers[attackerAttribute] ?? '0', 10) || 0;
-    attackerModifiers[attackerAttribute] = previousPenalty - penalty;
-    updatedModifiers[attackerSlot.cardId] = attackerModifiers;
-
-    const resultingValue = getStatValue(attackerCard, attackerAttribute) + attackerModifiers[attackerAttribute];
-    const attackerSurvives = resultingValue > 0;
-    statPenaltyMessage = ` ${attackerCard.name} pierde ${penalty} puntos en ${attackerAttribute} y queda en ${Math.max(0, resultingValue)} durante la batalla.`;
-
+    loserCardId = attackerSlot.cardId;
+    destroyedCardIds.add(attackerSlot.cardId);
+    targetSurvived = true;
     const attackerIndex = updatedSlots.findIndex((slot) => slot.id === attackerSlotId);
-    if (!attackerSurvives) {
-      loserCardId = attackerSlot.cardId;
+    if (attackerIndex >= 0) {
       updatedSlots[attackerIndex] = { ...updatedSlots[attackerIndex], cardId: '', faceDown: false };
     }
+  } else if (targetValue < attackerValue) {
+    loserCardId = targetSlot.cardId;
+    destroyedCardIds.add(targetSlot.cardId);
+    targetSurvived = false;
+    const loserIndex = updatedSlots.findIndex((slot) => slot.id === targetSlotId);
+    updatedSlots[loserIndex] = { ...updatedSlots[loserIndex], cardId: '', faceDown: false };
+  }
 
+  if (attackerResultingValue <= 0) {
+    attackerDestroyedByExhaustion = true;
+    const attackerIndex = updatedSlots.findIndex((slot) => slot.id === attackerSlotId);
+    if (attackerIndex >= 0 && updatedSlots[attackerIndex].cardId) {
+      updatedSlots[attackerIndex] = { ...updatedSlots[attackerIndex], cardId: '', faceDown: false };
+    }
+    if (!loserCardId) {
+      loserCardId = attackerSlot.cardId;
+    }
+    destroyedCardIds.add(attackerSlot.cardId);
+  }
+
+  if (targetSurvived) {
     const defenderIndex = updatedSlots.findIndex((slot) => slot.id === targetSlotId);
     if (defenderIndex >= 0 && updatedSlots[defenderIndex].faceDown) {
       updatedSlots[defenderIndex] = { ...updatedSlots[defenderIndex], faceDown: false };
     }
-  } else if (targetValue < attackerValue) {
-    loserCardId = targetSlot.cardId;
-    const loserIndex = updatedSlots.findIndex((slot) => slot.id === targetSlotId);
-    updatedSlots[loserIndex] = { ...updatedSlots[loserIndex], cardId: '', faceDown: false };
   }
 
   if (!loserCardId) {
@@ -1082,8 +1101,8 @@ async function resolveAttack(session, attackerSlotId, targetSlotId, attackerAttr
     const state = updatedPlayerStates[uid] || { hand: [], deck: [] };
     updatedPlayerStates[uid] = {
       ...state,
-      hand: (state.hand || []).filter((id) => id !== loserCardId),
-      deck: (state.deck || []).filter((id) => id !== loserCardId),
+      hand: (state.hand || []).filter((id) => !destroyedCardIds.has(id)),
+      deck: (state.deck || []).filter((id) => !destroyedCardIds.has(id)),
     };
   });
 
@@ -1096,7 +1115,8 @@ async function resolveAttack(session, attackerSlotId, targetSlotId, attackerAttr
     updatedAt: getTimestamp(),
   });
 
-  window.alert(`Ataque (${attackerAttribute}) vs defensa (${defenderAttribute}): ${attackerCard.name} (${attackerValue}) vs ${targetCard.name} (${targetValue}). La carta derrotada desapareció del mazo y de la mano.${statPenaltyMessage} El turno pasa al rival.`);
+  const exhaustionNote = attackerDestroyedByExhaustion ? ` ${attackerCard.name} también fue destruida al quedarse sin ${attackerAttribute}.` : '';
+  window.alert(`Ataque (${attackerAttribute}) vs defensa (${defenderAttribute}): ${attackerCard.name} (${attackerValue}) vs ${targetCard.name} (${targetValue}). La carta derrotada desapareció del mazo y de la mano.${statPenaltyMessage}${exhaustionNote} El turno pasa al rival.`);
 }
 
 function renderBattleArena() {
