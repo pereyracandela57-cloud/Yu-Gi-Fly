@@ -1281,6 +1281,19 @@ function updateProfileImagePreview(imageSource) {
   preview.classList.toggle('hidden', !imageSource);
 }
 
+function getCharacterExperienceState(characterId) {
+  const experiencePoints = users[currentUserId]?.experiencePoints || {};
+  const cardExperience = experiencePoints.byCharacter?.[characterId] || {};
+  const positive = Number.parseInt(cardExperience.positive ?? '0', 10) || 0;
+  const negative = Number.parseInt(cardExperience.negative ?? '0', 10) || 0;
+  const total = Number.parseInt(cardExperience.total ?? String(positive - negative), 10) || 0;
+  return { positive, negative, total };
+}
+
+function canEditProfileIdentityByExperience(totalExperience) {
+  return totalExperience > 0 && totalExperience < 5;
+}
+
 function renderProfile(character) {
   const profile = document.querySelector('.character-profile');
   const imagePreview = character.image
@@ -1288,6 +1301,11 @@ function renderProfile(character) {
     : '<img id="profile-image-preview" class="preview-image hidden" alt="Imagen actual del personaje">';
 
   activeProfileId = character.id;
+  const { total: availableExperience } = getCharacterExperienceState(character.id);
+  const canEditIdentityFields = canEditProfileIdentityByExperience(availableExperience);
+  const identityLockMessage = canEditIdentityFields
+    ? ''
+    : '<p class="deck-lock-note">Nombre, Tipo, Clan, Historia e imagen se habilitan al gastar el primer punto de experiencia y se vuelven a bloquear al gastar el último de los 5 puntos.</p>';
   profile.innerHTML = `
     <button class="back-to-gallery-btn" type="button">← Volver a personajes</button>
     <form class="profile-form" style="${getTypeColorStyles(character.type)}">
@@ -1302,15 +1320,15 @@ function renderProfile(character) {
         <div class="profile-fields">
           <label>
             Nombre del personaje
-            <input name="name" type="text" required value="${escapeHtml(character.name)}">
+            <input name="name" type="text" required value="${escapeHtml(character.name)}" ${canEditIdentityFields ? '' : 'disabled'}>
           </label>
           <label>
             Tipo
-            <select id="profile-character-type" name="type" required></select>
+            <select id="profile-character-type" name="type" required ${canEditIdentityFields ? '' : 'disabled'}></select>
           </label>
           <label>
             Clan
-            <select id="profile-character-clan" name="clan"></select>
+            <select id="profile-character-clan" name="clan" ${canEditIdentityFields ? '' : 'disabled'}></select>
           </label>
           <div class="stats-grid">
             <label>
@@ -1332,19 +1350,20 @@ function renderProfile(character) {
           </div>
           <label>
             Historia del personaje
-            <textarea name="story" rows="8" required>${escapeHtml(character.story)}</textarea>
+            <textarea name="story" rows="8" required ${canEditIdentityFields ? '' : 'disabled'}>${escapeHtml(character.story)}</textarea>
           </label>
+          ${identityLockMessage}
         </div>
         <aside class="profile-image-panel" aria-label="Imagen del personaje">
           ${imagePreview}
           <input id="profile-image-current" type="hidden" value="${escapeHtml(character.image)}">
           <label>
             URL de imagen de perfil
-            <input id="profile-character-image-url" name="imageUrl" type="url" value="${character.image && !character.image.startsWith('data:') ? escapeHtml(character.image) : ''}" placeholder="https://ejemplo.com/imagen.jpg">
+            <input id="profile-character-image-url" name="imageUrl" type="url" value="${character.image && !character.image.startsWith('data:') ? escapeHtml(character.image) : ''}" placeholder="https://ejemplo.com/imagen.jpg" ${canEditIdentityFields ? '' : 'disabled'}>
           </label>
           <label>
             Reemplazar con imagen del dispositivo
-            <input id="profile-character-image-file" name="imageFile" type="file" accept="image/*">
+            <input id="profile-character-image-file" name="imageFile" type="file" accept="image/*" ${canEditIdentityFields ? '' : 'disabled'}>
           </label>
         </aside>
       </div>
@@ -1396,6 +1415,24 @@ function renderProfile(character) {
       return;
     }
 
+    const updatedMagic = Number.parseInt(formData.get('magic'), 10) || 0;
+    const updatedStrength = Number.parseInt(formData.get('strength'), 10) || 0;
+    const updatedIntelligence = Number.parseInt(formData.get('intelligence'), 10) || 0;
+    const updatedSpeed = Number.parseInt(formData.get('speed'), 10) || 0;
+    const previousMagic = Number.parseInt(characterToUpdate.magic, 10) || 0;
+    const previousStrength = Number.parseInt(characterToUpdate.strength, 10) || 0;
+    const previousIntelligence = Number.parseInt(characterToUpdate.intelligence, 10) || 0;
+    const previousSpeed = Number.parseInt(characterToUpdate.speed, 10) || 0;
+    const spentPoints = Math.max(0, updatedMagic - previousMagic)
+      + Math.max(0, updatedStrength - previousStrength)
+      + Math.max(0, updatedIntelligence - previousIntelligence)
+      + Math.max(0, updatedSpeed - previousSpeed);
+    const { total: availablePoints } = getCharacterExperienceState(characterToUpdate.id);
+    if (spentPoints > availablePoints) {
+      setSyncStatus(`No tienes suficientes puntos de experiencia. Disponibles: ${availablePoints}.`, 'error');
+      return;
+    }
+
     try {
       await saveCharacter({
         ...characterToUpdate,
@@ -1409,6 +1446,11 @@ function renderProfile(character) {
         story: formData.get('story').trim(),
         image: profileImage || formData.get('imageUrl').trim(),
       });
+      if (spentPoints > 0 && currentUserId) {
+        await usersRef.child(currentUserId).child(`experiencePoints/byCharacter/${characterToUpdate.id}/total`).transaction(
+          (currentValue) => (Number(currentValue) || 0) - spentPoints,
+        );
+      }
       closeProfile();
     } catch (error) {
       console.error('No se pudo guardar el personaje en Firebase:', error);
