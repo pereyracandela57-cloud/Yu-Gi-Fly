@@ -836,16 +836,26 @@ async function resolveAttack(session, attackerSlotId, targetSlotId, attackerAttr
   let statPenaltyMessage = '';
 
   if (attackerValue < targetValue) {
-    loserCardId = attackerSlot.cardId;
     const penalty = Math.floor(targetValue / 2);
     const attackerModifiers = { ...(updatedModifiers[attackerSlot.cardId] || {}) };
     const previousPenalty = Number.parseInt(attackerModifiers[attackerAttribute] ?? '0', 10) || 0;
     attackerModifiers[attackerAttribute] = previousPenalty - penalty;
     updatedModifiers[attackerSlot.cardId] = attackerModifiers;
+
     const resultingValue = getStatValue(attackerCard, attackerAttribute) + attackerModifiers[attackerAttribute];
+    const attackerSurvives = resultingValue > 0;
     statPenaltyMessage = ` ${attackerCard.name} pierde ${penalty} puntos en ${attackerAttribute} y queda en ${Math.max(0, resultingValue)} durante la batalla.`;
-    const loserIndex = updatedSlots.findIndex((slot) => slot.id === attackerSlotId);
-    updatedSlots[loserIndex] = { ...updatedSlots[loserIndex], cardId: '', faceDown: false };
+
+    const attackerIndex = updatedSlots.findIndex((slot) => slot.id === attackerSlotId);
+    if (!attackerSurvives) {
+      loserCardId = attackerSlot.cardId;
+      updatedSlots[attackerIndex] = { ...updatedSlots[attackerIndex], cardId: '', faceDown: false };
+    }
+
+    const defenderIndex = updatedSlots.findIndex((slot) => slot.id === targetSlotId);
+    if (defenderIndex >= 0 && updatedSlots[defenderIndex].faceDown) {
+      updatedSlots[defenderIndex] = { ...updatedSlots[defenderIndex], faceDown: false };
+    }
   } else if (targetValue < attackerValue) {
     loserCardId = targetSlot.cardId;
     const loserIndex = updatedSlots.findIndex((slot) => slot.id === targetSlotId);
@@ -854,11 +864,13 @@ async function resolveAttack(session, attackerSlotId, targetSlotId, attackerAttr
 
   if (!loserCardId) {
     await battleSessionsRef.child(session.id).update({
+      fieldSlots: updatedSlots,
+      battleModifiers: updatedModifiers,
       currentTurnUid: nextTurnUid,
       pendingDefense: null,
       updatedAt: getTimestamp(),
     });
-    window.alert(`Empate: ataque (${attackerAttribute}) y defensa (${defenderAttribute}). Ninguna carta desaparece y el turno pasa al rival.`);
+    window.alert(`Ataque (${attackerAttribute}) vs defensa (${defenderAttribute}): ${attackerCard.name} (${attackerValue}) vs ${targetCard.name} (${targetValue}). Ninguna carta desaparece y el turno pasa al rival.${statPenaltyMessage}`);
     return;
   }
 
