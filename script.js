@@ -157,6 +157,7 @@ let historyTypesData = {};
 let selectedHistoryTypeId = '';
 
 let historyTypeContextMenuState = null;
+let experienceModalState = null;
 
 function closeHistoryTypeContextMenu() {
   if (!historyTypeContextMenuState) return;
@@ -447,7 +448,7 @@ function renderDeckBuilder() {
   container.innerHTML = `
     <p class="deck-description">
       ${hasSavedDeck
-        ? 'Tu mazo principal está guardado. Elige 3 personajes principales.'
+        ? 'Tu mazo principal está guardado. Elige 5 personajes principales.'
         : 'Selecciona 20 personajes para tu mazo principal.'}
     </p>
     <div class="deck-count">${hasSavedDeck ? `Mazo guardado: ${savedDeck.characterIds.length}/20` : `Seleccionados: ${selectedDeckIds.length}/20`}</div>
@@ -648,6 +649,8 @@ async function registerBattleOutcome(session) {
       losses: (currentValue?.losses || 0) + 1,
       updatedAt: getTimestamp(),
     })),
+    registerExperiencePointForUser(session.winnerUid, true),
+    registerExperiencePointForUser(session.loserUid, false),
   ]);
 }
 
@@ -777,13 +780,46 @@ async function saveDeck() {
 async function toggleMainCharacter(characterId) {
   if (!savedDeck.characterIds.includes(characterId)) return;
   const alreadyMain = savedDeck.mainIds.includes(characterId);
-  if (!alreadyMain && savedDeck.mainIds.length >= 3) return;
+  if (!alreadyMain && savedDeck.mainIds.length >= 5) return;
 
   savedDeck.mainIds = alreadyMain
     ? savedDeck.mainIds.filter((id) => id !== characterId)
     : [...savedDeck.mainIds, characterId];
   await userDecksRef.child(currentUserId).set(savedDeck);
   renderDeckBuilder();
+}
+
+async function registerExperiencePointForUser(userId, isPositive) {
+  if (!userId) return;
+  const deckSnapshot = await userDecksRef.child(userId).once('value');
+  const deckData = deckSnapshot.val() || {};
+  const mainIds = Array.isArray(deckData.mainIds) ? deckData.mainIds.filter(Boolean) : [];
+  if (!mainIds.length) return;
+
+  const selectedCardId = mainIds[Math.floor(Math.random() * mainIds.length)];
+  if (!selectedCardId) return;
+
+  await usersRef.child(userId).child('experiencePoints').transaction((currentValue) => {
+    const current = currentValue || {};
+    const byCharacter = current.byCharacter || {};
+    const currentCard = byCharacter[selectedCardId] || { positive: 0, negative: 0, total: 0 };
+    const positive = (current.positive || 0) + (isPositive ? 1 : 0);
+    const negative = (current.negative || 0) + (isPositive ? 0 : 1);
+    const updatedCard = {
+      positive: (currentCard.positive || 0) + (isPositive ? 1 : 0),
+      negative: (currentCard.negative || 0) + (isPositive ? 0 : 1),
+      total: (currentCard.total || 0) + (isPositive ? 1 : -1),
+    };
+    return {
+      positive,
+      negative,
+      byCharacter: {
+        ...byCharacter,
+        [selectedCardId]: updatedCard,
+      },
+      updatedAt: getTimestamp(),
+    };
+  });
 }
 
 function shuffleList(values) {
@@ -1065,6 +1101,40 @@ async function deleteCharacter(characterId) {
   }
 }
 
+
+
+function closeExperienceModal() {
+  if (!experienceModalState) return;
+  experienceModalState.overlay.remove();
+  experienceModalState = null;
+}
+
+function openExperienceModal(character) {
+  closeExperienceModal();
+  const experiencePoints = users[currentUserId]?.experiencePoints || {};
+  const cardExperience = experiencePoints.byCharacter?.[character.id] || {};
+  const positive = Number.parseInt(cardExperience.positive ?? '0', 10) || 0;
+  const negative = Number.parseInt(cardExperience.negative ?? '0', 10) || 0;
+  const total = Number.parseInt(cardExperience.total ?? String(positive - negative), 10) || 0;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'challenge-modal';
+  overlay.innerHTML = `
+    <div class="challenge-modal-card">
+      <h3>PUNTOS DE EXPERIENCIA</h3>
+      <p>${escapeHtml(character.name)}</p>
+      <p><strong class="xp-positive">Puntos positivos: +${positive}</strong></p>
+      <p><strong class="xp-negative">Puntos negativos: -${negative}</strong></p>
+      <p><strong>Total acumulado: ${total}</strong></p>
+      <div class="challenge-actions">
+        <button class="save-character-btn" data-close-experience-modal type="button">Cerrar</button>
+      </div>
+    </div>
+  `;
+  document.body.append(overlay);
+  experienceModalState = { overlay };
+}
+
 function updateProfileClanOptions(selectedClan = '') {
   const typeSelect = document.querySelector('#profile-character-type');
   const clanSelect = document.querySelector('#profile-character-clan');
@@ -1160,6 +1230,7 @@ function renderProfile(character) {
         </aside>
       </div>
       <div class="form-actions">
+        <button class="save-character-btn" type="button" data-open-experience>PUNTOS DE EXPERIENCIA</button>
         <button class="cancel-character-btn" type="button">Cancelar</button>
         <button class="delete-character-btn" type="button">Eliminar</button>
         <button class="save-character-btn" type="submit">Guardar cambios</button>
@@ -1180,6 +1251,7 @@ function renderProfile(character) {
 
   document.querySelector('.back-to-gallery-btn').addEventListener('click', closeProfile);
   document.querySelector('.profile-form .cancel-character-btn').addEventListener('click', closeProfile);
+  document.querySelector('[data-open-experience]')?.addEventListener('click', () => openExperienceModal(character));
   document.querySelector('.profile-form .delete-character-btn').addEventListener('click', () => {
     deleteCharacter(activeProfileId);
   });
@@ -1786,6 +1858,17 @@ function hideAttributePicker() {
 }
 
 document.addEventListener('click', (event) => {
+  const closeExperienceButton = event.target.closest('[data-close-experience-modal]');
+  if (closeExperienceButton) {
+    closeExperienceModal();
+    return;
+  }
+
+  if (experienceModalState && event.target === experienceModalState.overlay) {
+    closeExperienceModal();
+    return;
+  }
+
   const deckCard = event.target.closest('[data-deck-character-id]');
   if (deckCard && currentUserId) {
     const characterId = deckCard.dataset.deckCharacterId;
