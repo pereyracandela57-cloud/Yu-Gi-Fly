@@ -1209,15 +1209,33 @@ function hideCardActionModal() {
   battleCardActionModal.classList.add('hidden');
 }
 
+function isDeckBattleReady(deckData) {
+  const characterIds = Array.isArray(deckData?.characterIds) ? deckData.characterIds.filter(Boolean) : [];
+  const mainIds = Array.isArray(deckData?.mainIds) ? deckData.mainIds.filter(Boolean) : [];
+  return characterIds.length === 20 && mainIds.length === 5;
+}
+
 async function createBattleSessionForChallenge(challengeData) {
-  const accepterDeck = isBotUid(challengeData.toUid)
-    ? getBotDeckCharacterIds()
-    : ((await userDecksRef.child(challengeData.toUid).once('value')).val()?.characterIds || []);
-  if (accepterDeck.length !== 20) throw new Error('Debes tener mazo de 20 cartas para aceptar.');
-  const challengerDeck = isBotUid(challengeData.fromUid)
-    ? getBotDeckCharacterIds()
-    : ((await userDecksRef.child(challengeData.fromUid).once('value')).val()?.characterIds || []);
-  if (challengerDeck.length !== 20) throw new Error('El contrincante no tiene mazo válido.');
+  const botAccepterDeck = getBotDeckCharacterIds();
+  const accepterDeckData = isBotUid(challengeData.toUid)
+    ? {
+      characterIds: botAccepterDeck,
+      mainIds: botAccepterDeck.slice(0, 5),
+    }
+    : ((await userDecksRef.child(challengeData.toUid).once('value')).val() || {});
+  if (!isDeckBattleReady(accepterDeckData)) throw new Error('Debes tener mazo de 20 cartas y 5 principales para aceptar.');
+
+  const botChallengerDeck = getBotDeckCharacterIds();
+  const challengerDeckData = isBotUid(challengeData.fromUid)
+    ? {
+      characterIds: botChallengerDeck,
+      mainIds: botChallengerDeck.slice(0, 5),
+    }
+    : ((await userDecksRef.child(challengeData.fromUid).once('value')).val() || {});
+  if (!isDeckBattleReady(challengerDeckData)) throw new Error('El contrincante no tiene mazo válido (20 cartas y 5 principales).');
+
+  const accepterDeck = accepterDeckData.characterIds;
+  const challengerDeck = challengerDeckData.characterIds;
 
   const id = battleSessionsRef.push().key;
   const challengerShuffled = shuffleList(challengerDeck);
@@ -2375,9 +2393,9 @@ document.addEventListener('click', (event) => {
       return;
     }
 
-    const hasDeckReady = savedDeck.characterIds.length === 20;
+    const hasDeckReady = savedDeck.characterIds.length === 20 && savedDeck.mainIds.length === 5;
     if (!hasDeckReady) {
-      window.alert('Debes guardar un mazo de 20 personajes antes de retar.');
+      window.alert('Debes tener un mazo de 20 personajes y elegir 5 principales antes de retar.');
       return;
     }
 
