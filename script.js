@@ -828,9 +828,14 @@ async function registerExperiencePointForUser(userId, isPositive) {
     const currentCard = byCharacter[selectedCardId] || { positive: 0, negative: 0, total: 0 };
     const positive = (current.positive || 0) + (isPositive ? 1 : 0);
     const negative = (current.negative || 0) + (isPositive ? 0 : 1);
+    const cardPositive = currentCard.positive || 0;
+    const cardNegative = currentCard.negative || 0;
+    if ((cardPositive + cardNegative) >= 5) {
+      return current;
+    }
     const updatedCard = {
-      positive: (currentCard.positive || 0) + (isPositive ? 1 : 0),
-      negative: (currentCard.negative || 0) + (isPositive ? 0 : 1),
+      positive: cardPositive + (isPositive ? 1 : 0),
+      negative: cardNegative + (isPositive ? 0 : 1),
       total: (currentCard.total || 0) + (isPositive ? 1 : -1),
     };
     return {
@@ -1222,6 +1227,18 @@ async function deleteCharacter(characterId) {
 
 
 
+
+function getCharacterExperience(characterId) {
+  const experiencePoints = users[currentUserId]?.experiencePoints || {};
+  const cardExperience = experiencePoints.byCharacter?.[characterId] || {};
+  const positive = Number.parseInt(cardExperience.positive ?? '0', 10) || 0;
+  const negative = Number.parseInt(cardExperience.negative ?? '0', 10) || 0;
+  const total = Number.parseInt(cardExperience.total ?? String(positive - negative), 10) || 0;
+  const available = positive + negative;
+  const canSpend = available >= 5;
+  return { positive, negative, total, available, canSpend };
+}
+
 function closeExperienceModal() {
   if (!experienceModalState) return;
   experienceModalState.overlay.remove();
@@ -1230,11 +1247,7 @@ function closeExperienceModal() {
 
 function openExperienceModal(character) {
   closeExperienceModal();
-  const experiencePoints = users[currentUserId]?.experiencePoints || {};
-  const cardExperience = experiencePoints.byCharacter?.[character.id] || {};
-  const positive = Number.parseInt(cardExperience.positive ?? '0', 10) || 0;
-  const negative = Number.parseInt(cardExperience.negative ?? '0', 10) || 0;
-  const total = Number.parseInt(cardExperience.total ?? String(positive - negative), 10) || 0;
+  const { positive, negative, total, available, canSpend } = getCharacterExperience(character.id);
 
   const overlay = document.createElement('div');
   overlay.className = 'challenge-modal';
@@ -1245,6 +1258,8 @@ function openExperienceModal(character) {
       <p><strong class="xp-positive">Puntos positivos: +${positive}</strong></p>
       <p><strong class="xp-negative">Puntos negativos: -${negative}</strong></p>
       <p><strong>Total acumulado: ${total}</strong></p>
+      <p><strong>Puntos disponibles para desbloquear edición: ${available}/5</strong></p>
+      <p>${canSpend ? "Puedes usar estos puntos para editar atributos ahora." : "Necesitas 5 puntos (positivos+negativos) para habilitar edición."}</p>
       <div class="challenge-actions">
         <button class="save-character-btn" data-close-experience-modal type="button">Cerrar</button>
       </div>
@@ -1309,6 +1324,7 @@ function renderProfile(character) {
   profile.innerHTML = `
     <button class="back-to-gallery-btn" type="button">← Volver a personajes</button>
     <form class="profile-form" style="${getTypeColorStyles(character.type)}">
+      ${(() => { const xp = getCharacterExperience(character.id); return `<p class="profile-kicker">${xp.canSpend ? `Edición desbloqueada: reparte +${xp.positive} y -${xp.negative}.` : "Rasgos bloqueados: elimina el personaje o consigue 5 puntos de experiencia."}</p>`; })()}
       <div class="profile-heading">
         <div>
           <p class="profile-kicker">Perfil del personaje</p>
@@ -1320,32 +1336,32 @@ function renderProfile(character) {
         <div class="profile-fields">
           <label>
             Nombre del personaje
-            <input name="name" type="text" required value="${escapeHtml(character.name)}" ${canEditIdentityFields ? '' : 'disabled'}>
+            <input name="name" type="text" required value="${escapeHtml(character.name)}" disabled>
           </label>
           <label>
             Tipo
-            <select id="profile-character-type" name="type" required ${canEditIdentityFields ? '' : 'disabled'}></select>
+            <select id="profile-character-type" name="type" required disabled></select>
           </label>
           <label>
             Clan
-            <select id="profile-character-clan" name="clan" ${canEditIdentityFields ? '' : 'disabled'}></select>
+            <select id="profile-character-clan" name="clan" disabled></select>
           </label>
           <div class="stats-grid">
             <label>
               Puntos de magia
-              <input name="magic" type="number" min="1" max="100" required value="${escapeHtml(character.magic)}">
+              <input name="magic" type="number" min="1" max="100" required value="${escapeHtml(character.magic)}" disabled>
             </label>
             <label>
               Puntos de fuerza
-              <input name="strength" type="number" min="1" max="100" required value="${escapeHtml(character.strength)}">
+              <input name="strength" type="number" min="1" max="100" required value="${escapeHtml(character.strength)}" disabled>
             </label>
             <label>
               Puntos de inteligencia
-              <input name="intelligence" type="number" min="1" max="100" required value="${escapeHtml(character.intelligence)}">
+              <input name="intelligence" type="number" min="1" max="100" required value="${escapeHtml(character.intelligence)}" disabled>
             </label>
             <label>
               Puntos de velocidad
-              <input name="speed" type="number" min="1" max="100" required value="${escapeHtml(character.speed)}">
+              <input name="speed" type="number" min="1" max="100" required value="${escapeHtml(character.speed)}" disabled>
             </label>
           </div>
           <label>
@@ -1366,6 +1382,16 @@ function renderProfile(character) {
             <input id="profile-character-image-file" name="imageFile" type="file" accept="image/*" ${canEditIdentityFields ? '' : 'disabled'}>
           </label>
         </aside>
+      </div>
+      <div class="stats-grid xp-adjustments">
+        <label>+ Magia <input name="addMagic" type="number" min="0" value="0"></label>
+        <label>+ Fuerza <input name="addStrength" type="number" min="0" value="0"></label>
+        <label>+ Inteligencia <input name="addIntelligence" type="number" min="0" value="0"></label>
+        <label>+ Velocidad <input name="addSpeed" type="number" min="0" value="0"></label>
+        <label>- Magia <input name="subMagic" type="number" min="0" value="0"></label>
+        <label>- Fuerza <input name="subStrength" type="number" min="0" value="0"></label>
+        <label>- Inteligencia <input name="subIntelligence" type="number" min="0" value="0"></label>
+        <label>- Velocidad <input name="subSpeed" type="number" min="0" value="0"></label>
       </div>
       <div class="form-actions">
         <button class="save-character-btn" type="button" data-open-experience>PUNTOS DE EXPERIENCIA</button>
@@ -1434,23 +1460,50 @@ function renderProfile(character) {
     }
 
     try {
+      const xp = getCharacterExperience(characterToUpdate.id);
+      if (!xp.canSpend) {
+        window.alert('Necesitas 5 puntos de experiencia (positivos + negativos) para editar este personaje.');
+        return;
+      }
+      const add = {
+        magic: Number(formData.get('addMagic') || 0),
+        strength: Number(formData.get('addStrength') || 0),
+        intelligence: Number(formData.get('addIntelligence') || 0),
+        speed: Number(formData.get('addSpeed') || 0),
+      };
+      const sub = {
+        magic: Number(formData.get('subMagic') || 0),
+        strength: Number(formData.get('subStrength') || 0),
+        intelligence: Number(formData.get('subIntelligence') || 0),
+        speed: Number(formData.get('subSpeed') || 0),
+      };
+      const addTotal = Object.values(add).reduce((a,b)=>a+b,0);
+      const subTotal = Object.values(sub).reduce((a,b)=>a+b,0);
+      if (addTotal !== xp.positive || subTotal !== xp.negative) {
+        window.alert(`Debes usar exactamente +${xp.positive} y -${xp.negative} puntos.`);
+        return;
+      }
+      const next = {
+        magic: Number(characterToUpdate.magic) + add.magic - sub.magic,
+        strength: Number(characterToUpdate.strength) + add.strength - sub.strength,
+        intelligence: Number(characterToUpdate.intelligence) + add.intelligence - sub.intelligence,
+        speed: Number(characterToUpdate.speed) + add.speed - sub.speed,
+      };
+      if (Object.values(next).some((value) => value < 1 || value > 100)) {
+        window.alert('Los atributos resultantes deben quedar entre 1 y 100.');
+        return;
+      }
       await saveCharacter({
         ...characterToUpdate,
-        name: formData.get('name').trim(),
-        type: formData.get('type'),
-        clan: formData.get('clan'),
-        magic: formData.get('magic'),
-        strength: formData.get('strength'),
-        intelligence: formData.get('intelligence'),
-        speed: formData.get('speed'),
+        magic: String(next.magic),
+        strength: String(next.strength),
+        intelligence: String(next.intelligence),
+        speed: String(next.speed),
         story: formData.get('story').trim(),
         image: profileImage || formData.get('imageUrl').trim(),
+        clan: formData.get('clan'),
       });
-      if (spentPoints > 0 && currentUserId) {
-        await usersRef.child(currentUserId).child(`experiencePoints/byCharacter/${characterToUpdate.id}/total`).transaction(
-          (currentValue) => (Number(currentValue) || 0) - spentPoints,
-        );
-      }
+      await usersRef.child(currentUserId).child(`experiencePoints/byCharacter/${characterToUpdate.id}`).set({ positive: 0, negative: 0, total: 0, updatedAt: getTimestamp() });
       closeProfile();
     } catch (error) {
       console.error('No se pudo guardar el personaje en Firebase:', error);
