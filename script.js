@@ -1129,6 +1129,19 @@ async function resolveAttack(session, attackerSlotId, targetSlotId, attackerAttr
   window.alert(`Ataque (${attackerAttribute}) vs defensa (${defenderAttribute}): ${attackerCard.name} (${attackerValue}) vs ${targetCard.name} (${targetValue}). La carta derrotada desapareció del mazo y de la mano.${statPenaltyMessage}${exhaustionNote} El turno pasa al rival.`);
 }
 
+
+function getBattleCardWithEffectiveStats(session, cardId) {
+  const card = characters.find((entry) => entry.id === cardId);
+  if (!card) return null;
+  return {
+    ...card,
+    strength: getEffectiveStatValue(session, cardId, 'strength') || 0,
+    intelligence: getEffectiveStatValue(session, cardId, 'intelligence') || 0,
+    magic: getEffectiveStatValue(session, cardId, 'magic') || 0,
+    speed: getEffectiveStatValue(session, cardId, 'speed') || 0,
+  };
+}
+
 function renderBattleArena() {
   if (!activeBattleSession || !currentUserId) return;
   const session = activeBattleSession;
@@ -1140,17 +1153,10 @@ function renderBattleArena() {
 
   battleTurnLabel.textContent = myTurn ? 'Es tu turno.' : 'Turno del contrincante.';
   battleHand.innerHTML = myState.hand.map((cardId) => {
-    const card = characters.find((entry) => entry.id === cardId);
+    const card = getBattleCardWithEffectiveStats(session, cardId);
     const selectedClass = selectedHandCardId === cardId ? 'is-picked' : '';
     if (!card) return '';
-    const liveCard = {
-      ...card,
-      strength: getEffectiveStatValue(activeBattleSession, cardId, 'strength') || 0,
-      intelligence: getEffectiveStatValue(activeBattleSession, cardId, 'intelligence') || 0,
-      magic: getEffectiveStatValue(activeBattleSession, cardId, 'magic') || 0,
-      speed: getEffectiveStatValue(activeBattleSession, cardId, 'speed') || 0,
-    };
-    return renderSharedCharacterCard(liveCard, {
+    return renderSharedCharacterCard(card, {
       dataAttribute: 'data-battle-hand-id',
       dataValue: cardId,
       extraClasses: `deck-card battle-hand-card character-size-compact ${selectedClass}`,
@@ -1163,7 +1169,7 @@ function renderBattleArena() {
       .filter((slot) => slot.ownerUid === ownerUid)
       .slice(0, 5);
     slotsContainer.innerHTML = slots.map((slot) => {
-      const card = slot.cardId ? characters.find((entry) => entry.id === slot.cardId) : null;
+      const card = slot.cardId ? getBattleCardWithEffectiveStats(session, slot.cardId) : null;
       const hiddenForOpponent = slot.faceDown && !isPlayer;
       const obscuredForOwner = slot.faceDown && isPlayer;
       const canPlace = isPlayer && !slot.cardId && Boolean(selectedHandCardId) && Boolean(pendingPlacementMode);
@@ -2431,7 +2437,7 @@ document.addEventListener('click', (event) => {
   }
 
   if (clickedSlot.ownerUid === currentUserId) {
-    const attackerCard = characters.find((entry) => entry.id === clickedSlot.cardId);
+    const attackerCard = getBattleCardWithEffectiveStats(session, clickedSlot.cardId);
     if (!attackerCard) return;
     openAttributePicker('attack', attackerCard, (selectedAttribute) => {
       pendingAttack = { attackerSlotId: clickedSlot.id, attribute: selectedAttribute };
@@ -2538,7 +2544,7 @@ battleSessionsRef.on('value', (snapshot) => {
   }
   if (pendingDefenseData?.defenderUid === currentUserId) {
     const defenderSlot = (current.fieldSlots || []).find((slot) => slot.id === pendingDefenseData.targetSlotId);
-    const defenderCard = defenderSlot?.cardId ? characters.find((entry) => entry.id === defenderSlot.cardId) : null;
+    const defenderCard = defenderSlot?.cardId ? getBattleCardWithEffectiveStats(current, defenderSlot.cardId) : null;
     if (defenderCard) {
       openAttributePicker('defense', defenderCard, (defenseAttribute) => {
         resolveAttack(
