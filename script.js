@@ -1020,6 +1020,16 @@ function getEffectiveStatValue(session, cardId, attribute) {
   return Math.max(0, baseValue + modifierValue);
 }
 
+function getHighestAttributeForCard(session, cardId) {
+  return battleAttributes.reduce((best, attribute) => {
+    const value = getEffectiveStatValue(session, cardId, attribute);
+    if (!best || value > best.value) {
+      return { attribute, value };
+    }
+    return best;
+  }, null)?.attribute || 'strength';
+}
+
 async function resolveAttack(session, attackerSlotId, targetSlotId, attackerAttribute, defenderAttribute = attackerAttribute) {
   const attackerSlot = (session.fieldSlots || []).find((slot) => slot.id === attackerSlotId);
   const targetSlot = (session.fieldSlots || []).find((slot) => slot.id === targetSlotId);
@@ -2472,12 +2482,29 @@ battleSessionsRef.on('value', (snapshot) => {
   if (previousBattleId !== current.id) {
     battleArenaDismissed = true;
   }
-  if (!battleArenaDismissed) {
+  if (!battleArenaDismissed || current.currentTurnUid === BOT_UID || current.pendingDefense) {
+    battleArenaDismissed = false;
     renderBattleArena();
   } else {
     battleArenaModal.classList.add('hidden');
   }
   const pendingDefenseData = current.pendingDefense;
+  if (pendingDefenseData?.defenderUid === BOT_UID) {
+    const defenderSlot = (current.fieldSlots || []).find((slot) => slot.id === pendingDefenseData.targetSlotId);
+    if (defenderSlot?.cardId) {
+      const bestDefenseAttribute = getHighestAttributeForCard(current, defenderSlot.cardId);
+      resolveAttack(
+        current,
+        pendingDefenseData.attackerSlotId,
+        pendingDefenseData.targetSlotId,
+        pendingDefenseData.attackerAttribute,
+        bestDefenseAttribute,
+      ).catch((error) => console.error('No se pudo resolver defensa automática del BOT:', error));
+    }
+    renderOnlineUsers();
+    renderDeckBuilder();
+    return;
+  }
   if (pendingDefenseData?.defenderUid === currentUserId) {
     const defenderSlot = (current.fieldSlots || []).find((slot) => slot.id === pendingDefenseData.targetSlotId);
     const defenderCard = defenderSlot?.cardId ? characters.find((entry) => entry.id === defenderSlot.cardId) : null;
