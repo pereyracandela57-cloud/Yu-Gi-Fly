@@ -23,6 +23,17 @@ const battleHistoryRef = database.ref('battleHistory');
 const battleOutcomeMarkersRef = database.ref('battleOutcomeMarkers');
 const historyTypesRef = database.ref('historyTypes');
 
+
+const BOT_UID = 'bot-desarrollo';
+const BOT_NAME = 'DESARROLLO';
+const BOT_USER = {
+  uid: BOT_UID,
+  name: BOT_NAME,
+  photoURL: '',
+};
+let botTurnInFlightSessionId = '';
+
+
 const buttons = document.querySelectorAll('.menu-btn');
 const panels = document.querySelectorAll('.panel');
 const personajesPanel = document.querySelector('#personajes');
@@ -499,7 +510,10 @@ function renderOnlineUsers() {
     return;
   }
 
-  const authenticatedUsers = Object.entries(users).map(([uid, entry]) => ({ uid, ...(entry || {}) })).filter((entry) => entry.uid !== currentUserId);
+  const authenticatedUsers = [
+    ...Object.entries(users).map(([uid, entry]) => ({ uid, ...(entry || {}) })).filter((entry) => entry.uid !== currentUserId),
+    BOT_USER,
+  ];
   if (!authenticatedUsers.length) {
     battleUsersList.innerHTML = '<p>No hay otros perfiles autenticados disponibles por ahora.</p>';
     return;
@@ -509,7 +523,7 @@ function renderOnlineUsers() {
     .map((user) => {
       const openBattle = getOpenBattleWithUser(user.uid);
       const hasOpenBattle = Boolean(openBattle);
-      const isOnline = Boolean(onlineUsers[user.uid]);
+      const isOnline = isBotUid(user.uid) || Boolean(onlineUsers[user.uid]);
       const isSurrendering = surrenderInFlightUserId === user.uid;
       const hasPendingOutgoingChallenge = pendingChallenges.some((challenge) => (
         challenge?.status === 'pending'
@@ -624,7 +638,7 @@ async function registerBattleOutcome(session) {
   const winnerVsLoserRef = battleHistoryRef.child(session.winnerUid).child(session.loserUid);
   const loserVsWinnerRef = battleHistoryRef.child(session.loserUid).child(session.winnerUid);
 
-  await Promise.all([
+  const updates = [
     winnerVsLoserRef.transaction((currentValue) => ({
       battles: (currentValue?.battles || 0) + 1,
       wins: (currentValue?.wins || 0) + 1,
@@ -639,19 +653,28 @@ async function registerBattleOutcome(session) {
       createdAt: currentValue?.createdAt || getTimestamp(),
       updatedAt: getTimestamp(),
     })),
-    usersRef.child(session.winnerUid).child('battleSummary').transaction((currentValue) => ({
-      wins: (currentValue?.wins || 0) + 1,
-      losses: currentValue?.losses || 0,
-      updatedAt: getTimestamp(),
-    })),
-    usersRef.child(session.loserUid).child('battleSummary').transaction((currentValue) => ({
-      wins: currentValue?.wins || 0,
-      losses: (currentValue?.losses || 0) + 1,
-      updatedAt: getTimestamp(),
-    })),
-    registerExperiencePointForUser(session.winnerUid, true),
-    registerExperiencePointForUser(session.loserUid, false),
-  ]);
+  ];
+  if (!isBotUid(session.winnerUid)) {
+    updates.push(
+      usersRef.child(session.winnerUid).child('battleSummary').transaction((currentValue) => ({
+        wins: (currentValue?.wins || 0) + 1,
+        losses: currentValue?.losses || 0,
+        updatedAt: getTimestamp(),
+      })),
+      registerExperiencePointForUser(session.winnerUid, true),
+    );
+  }
+  if (!isBotUid(session.loserUid)) {
+    updates.push(
+      usersRef.child(session.loserUid).child('battleSummary').transaction((currentValue) => ({
+        wins: currentValue?.wins || 0,
+        losses: (currentValue?.losses || 0) + 1,
+        updatedAt: getTimestamp(),
+      })),
+      registerExperiencePointForUser(session.loserUid, false),
+    );
+  }
+  await Promise.all(updates);
 }
 
 async function ensureBattleHistoryPair(userAUid, userBUid) {
@@ -835,6 +858,43 @@ function getBattlePlayers(session) {
   return session.players || [];
 }
 
+function isBotUid(uid) {
+  return uid === BOT_UID;
+}
+
+function getBotDeckCharacterIds() {
+  if (!characters.length) return [];
+  return shuffleList(characters.map((entry) => entry.id)).slice(0, 20);
+}
+
+function getBotPreferredAttack(session, botUid) {
+  const botSlots = (session.fieldSlots || []).filter((slot) => slot.ownerUid === botUid && slot.cardId);
+  const rivalSlots = (session.fieldSlots || []).filter((slot) => slot.ownerUid !== botUid && slot.cardId);
+  if (!botSlots.length || !rivalSlots.length) return null;
+
+  let bestPlay = null;
+  botSlots.forEach((attackerSlot) => {
+    battleAttributes.forEach((attribute) => {
+      const attackerValue = getEffectiveStatValue(session, attackerSlot.cardId, attribute);
+      rivalSlots.forEach((targetSlot) => {
+        const defenderValue = targetSlot.faceDown
+          ? null
+          : getEffectiveStatValue(session, targetSlot.cardId, attribute);
+        const score = defenderValue === null ? attackerValue : attackerValue - defenderValue;
+        if (!bestPlay || score > bestPlay.score) {
+          bestPlay = {
+            attackerSlotId: attackerSlot.id,
+            targetSlotId: targetSlot.id,
+            attribute,
+            score,
+          };
+        }
+      });
+    });
+  });
+  return bestPlay;
+}
+
 function getPlayerState(session, uid) {
   return (session.playerStates || {})[uid] || { hand: [], deck: [] };
 }
@@ -1006,11 +1066,13 @@ function hideCardActionModal() {
 }
 
 async function createBattleSessionForChallenge(challengeData) {
-  const accepterDeckSnapshot = await userDecksRef.child(challengeData.toUid).once('value');
-  const accepterDeck = (accepterDeckSnapshot.val()?.characterIds) || [];
+  const accepterDeck = isBotUid(challengeData.toUid)
+    ? getBotDeckCharacterIds()
+    : ((await userDecksRef.child(challengeData.toUid).once('value')).val()?.characterIds || []);
   if (accepterDeck.length !== 20) throw new Error('Debes tener mazo de 20 cartas para aceptar.');
-  const challengerDeckSnapshot = await userDecksRef.child(challengeData.fromUid).once('value');
-  const challengerDeck = (challengerDeckSnapshot.val()?.characterIds) || [];
+  const challengerDeck = isBotUid(challengeData.fromUid)
+    ? getBotDeckCharacterIds()
+    : ((await userDecksRef.child(challengeData.fromUid).once('value')).val()?.characterIds || []);
   if (challengerDeck.length !== 20) throw new Error('El contrincante no tiene mazo válido.');
 
   const id = battleSessionsRef.push().key;
@@ -1067,6 +1129,63 @@ async function finishBattleIfPlayerOutOfCards(session) {
     updatedAt: getTimestamp(),
   });
   return true;
+}
+
+async function executeBotTurn(session) {
+  if (!session?.id || session.status !== 'active') return;
+  if (session.currentTurnUid !== BOT_UID) return;
+  if (botTurnInFlightSessionId === session.id) return;
+  botTurnInFlightSessionId = session.id;
+
+  try {
+    const botState = getPlayerState(session, BOT_UID);
+    const botSlots = (session.fieldSlots || []).filter((slot) => slot.ownerUid === BOT_UID);
+    const emptyBotSlot = botSlots.find((slot) => !slot.cardId);
+    const attackPlan = getBotPreferredAttack(session, BOT_UID);
+
+    if (botState.hand.length && emptyBotSlot) {
+      const cardId = botState.hand[0];
+      const updatedHand = botState.hand.slice(1);
+      const updatedDeck = [...botState.deck];
+      if (updatedDeck.length) updatedHand.push(updatedDeck.shift());
+      const faceDown = Math.random() < 0.45;
+      const fieldSlots = (session.fieldSlots || []).map((slot) => (
+        slot.id === emptyBotSlot.id ? { ...slot, cardId, faceDown } : slot
+      ));
+      const nextTurnUid = session.players.find((uid) => uid !== BOT_UID) || BOT_UID;
+      await battleSessionsRef.child(session.id).update({
+        fieldSlots,
+        currentTurnUid: nextTurnUid,
+        [`playerStates/${BOT_UID}/hand`]: updatedHand,
+        [`playerStates/${BOT_UID}/deck`]: updatedDeck,
+        updatedAt: getTimestamp(),
+      });
+      return;
+    }
+
+    if (attackPlan) {
+      const targetSlot = (session.fieldSlots || []).find((slot) => slot.id === attackPlan.targetSlotId);
+      const defenderAttribute = targetSlot?.faceDown
+        ? battleAttributes[Math.floor(Math.random() * battleAttributes.length)]
+        : attackPlan.attribute;
+      await resolveAttack(
+        session,
+        attackPlan.attackerSlotId,
+        attackPlan.targetSlotId,
+        attackPlan.attribute,
+        defenderAttribute,
+      );
+      return;
+    }
+
+    const nextTurnUid = session.players.find((uid) => uid !== BOT_UID) || BOT_UID;
+    await battleSessionsRef.child(session.id).update({
+      currentTurnUid: nextTurnUid,
+      updatedAt: getTimestamp(),
+    });
+  } finally {
+    botTurnInFlightSessionId = '';
+  }
 }
 
 function closeProfile() {
@@ -1924,6 +2043,16 @@ document.addEventListener('click', (event) => {
       return;
     }
 
+    if (isBotUid(challengedUid)) {
+      createBattleSessionForChallenge({
+        fromUid: currentUserId,
+        fromName: users[currentUserId]?.name || userName.textContent || 'Usuario',
+        toUid: BOT_UID,
+        toName: BOT_NAME,
+      }).catch((error) => console.error('No se pudo iniciar batalla contra el BOT:', error));
+      return;
+    }
+
     sendBattleChallenge(challengedUid, challengedName)
       .catch((error) => console.error('No se pudo enviar el desafío:', error));
     return;
@@ -2042,6 +2171,11 @@ battleSessionsRef.on('value', (snapshot) => {
   finishBattleIfPlayerOutOfCards(current).catch((error) => {
     console.error('No se pudo finalizar la batalla por falta de cartas:', error);
   });
+  if (current.currentTurnUid === BOT_UID) {
+    executeBotTurn(current).catch((error) => {
+      console.error('No se pudo ejecutar turno del BOT:', error);
+    });
+  }
   const previousBattleId = activeBattleSession?.id;
   activeBattleSession = current;
   if (previousBattleId !== current.id) {
