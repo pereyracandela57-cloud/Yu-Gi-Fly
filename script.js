@@ -173,6 +173,8 @@ const CHARACTER_DEVELOPMENT_MODE = {
   PENDING: 'pending-battle',
   READY_TO_EDIT: 'ready-to-edit',
 };
+const POSITIVE_EVENT_TAGS = ['Amigo', 'Objeto', 'Habilidad', 'Misión', 'Clan'];
+const NEGATIVE_EVENT_TAGS = ['Enemigo', 'Maldición', 'Miedo', 'Debilidad'];
 
 function getCharacterStatValue(character, attribute) {
   return Number.parseInt(character?.[attribute] ?? '0', 10) || 0;
@@ -673,6 +675,8 @@ async function registerBattleOutcome(session) {
       updatedAt: getTimestamp(),
     })),
   ];
+  let winnerExperienceResult = null;
+  let loserExperienceResult = null;
   if (!isBotUid(session.winnerUid)) {
     updates.push(
       usersRef.child(session.winnerUid).child('battleSummary').transaction((currentValue) => ({
@@ -680,8 +684,8 @@ async function registerBattleOutcome(session) {
         losses: currentValue?.losses || 0,
         updatedAt: getTimestamp(),
       })),
-      registerExperiencePointForUser(session.winnerUid, true),
     );
+    winnerExperienceResult = await registerExperiencePointForUser(session.winnerUid, true);
   }
   if (!isBotUid(session.loserUid)) {
     updates.push(
@@ -690,10 +694,28 @@ async function registerBattleOutcome(session) {
         losses: (currentValue?.losses || 0) + 1,
         updatedAt: getTimestamp(),
       })),
-      registerExperiencePointForUser(session.loserUid, false),
     );
+    loserExperienceResult = await registerExperiencePointForUser(session.loserUid, false);
   }
   await Promise.all(updates);
+  if (winnerExperienceResult?.forcedCardId && loserExperienceResult?.selectedCardId) {
+    await createCharacterEventForDevelopment({
+      developmentCharacterId: winnerExperienceResult.forcedCardId,
+      rivalUid: session.loserUid,
+      rivalName: users[session.loserUid]?.name,
+      rivalCardId: loserExperienceResult.selectedCardId,
+      didWin: true,
+    });
+  }
+  if (loserExperienceResult?.forcedCardId && winnerExperienceResult?.selectedCardId) {
+    await createCharacterEventForDevelopment({
+      developmentCharacterId: loserExperienceResult.forcedCardId,
+      rivalUid: session.winnerUid,
+      rivalName: users[session.winnerUid]?.name,
+      rivalCardId: winnerExperienceResult.selectedCardId,
+      didWin: false,
+    });
+  }
 }
 
 async function ensureBattleHistoryPair(userAUid, userBUid) {
@@ -832,18 +854,18 @@ async function toggleMainCharacter(characterId) {
 }
 
 async function registerExperiencePointForUser(userId, isPositive) {
-  if (!userId) return;
+  if (!userId) return null;
   const deckSnapshot = await userDecksRef.child(userId).once('value');
   const deckData = deckSnapshot.val() || {};
   const mainIds = Array.isArray(deckData.mainIds) ? deckData.mainIds.filter(Boolean) : [];
-  if (!mainIds.length) return;
+  if (!mainIds.length) return null;
 
   const forcedCard = characters.find((entry) => {
     const development = getCharacterDevelopmentProgress(userId, entry);
     return development?.status === CHARACTER_DEVELOPMENT_MODE.PENDING;
   });
   const selectedCardId = forcedCard?.id || mainIds[Math.floor(Math.random() * mainIds.length)];
-  if (!selectedCardId) return;
+  if (!selectedCardId) return null;
   const selectedCharacter = characters.find((entry) => entry.id === selectedCardId) || null;
   const shouldActivateDevelopmentMode = selectedCharacter
     && isCharacterAtMaxBaseStats(selectedCharacter)
@@ -880,6 +902,29 @@ async function registerExperiencePointForUser(userId, isPositive) {
   if (shouldActivateDevelopmentMode) {
     await userDecksRef.child(userId).child('mainIds').set([selectedCardId]);
   }
+  return { selectedCardId, forcedCardId: forcedCard?.id || null, isPositive };
+}
+
+async function createCharacterEventForDevelopment({ developmentCharacterId, rivalUid, rivalName, rivalCardId, didWin }) {
+  if (!developmentCharacterId || !rivalUid || !rivalCardId) return;
+  const tagPool = didWin ? POSITIVE_EVENT_TAGS : NEGATIVE_EVENT_TAGS;
+  const tag = tagPool[Math.floor(Math.random() * tagPool.length)];
+  const rivalCard = characters.find((entry) => entry.id === rivalCardId);
+  const eventId = crypto.randomUUID();
+  await getCharacterRef(developmentCharacterId).child('events').child(eventId).set({
+    id: eventId,
+    tag,
+    isPositive: didWin,
+    rivalUid,
+    rivalName: rivalName || users[rivalUid]?.name || 'Rival desconocido',
+    rivalCardId,
+    rivalCardName: rivalCard?.name || 'Carta desconocida',
+    rivalCardImage: rivalCard?.image || '',
+    story: '',
+    image: '',
+    locked: false,
+    createdAt: getTimestamp(),
+  });
 }
 
 function shuffleList(values) {
@@ -1356,6 +1401,7 @@ function renderProfile(character) {
   const identityLockMessage = canEditIdentityFields
     ? ''
     : '<p class="deck-lock-note">Nombre, Tipo, Clan, Historia e imagen se habilitan al gastar el primer punto de experiencia y se vuelven a bloquear al gastar el último de los 5 puntos.</p>';
+  const events = Object.values(character.events || {}).sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
   profile.innerHTML = `
     <button class="back-to-gallery-btn" type="button">← Volver a personajes</button>
     <form class="profile-form" style="${getTypeColorStyles(character.type)}">
@@ -1431,11 +1477,31 @@ function renderProfile(character) {
       <div class="form-actions">
         ${developmentProgress ? `<p class="deck-lock-note">MODO DESARROLLO DE PERSONAJE: ${developmentProgress.status === CHARACTER_DEVELOPMENT_MODE.PENDING ? 'en espera de la próxima batalla (carta principal única).' : 'resultado aplicado, ahora debes editar atributos.'}</p>` : ''}
         <button class="save-character-btn" type="button" data-open-experience>PUNTOS DE EXPERIENCIA</button>
+        <button class="save-character-btn" type="button" data-open-events>ACONTECIMIENTOS</button>
         <button class="cancel-character-btn" type="button">Cancelar</button>
         <button class="delete-character-btn" type="button">Eliminar</button>
         <button class="save-character-btn" type="submit">Guardar cambios</button>
       </div>
     </form>
+    <section class="events-panel hidden">
+      <div class="history-section-header">
+        <h3>Acontecimientos</h3>
+        <button class="cancel-character-btn" type="button" data-close-events>Volver al perfil</button>
+      </div>
+      ${events.length ? `<div class="events-grid">${events.map((entry) => `<article class="event-card">
+        <div class="event-thumb">${entry.rivalCardImage ? `<img src="${escapeHtml(entry.rivalCardImage)}" alt="Rival ${escapeHtml(entry.rivalCardName || '')}">` : '<span>Sin imagen</span>'}</div>
+        <span class="event-tag ${entry.isPositive ? 'positive' : 'negative'}">${escapeHtml(entry.tag || '')}</span>
+        <p><strong>Rival:</strong> ${escapeHtml(entry.rivalName || 'Desconocido')}</p>
+        <p><strong>Carta principal rival:</strong> ${escapeHtml(entry.rivalCardName || 'No disponible')}</p>
+        ${entry.locked ? `<p>${escapeHtml(entry.story || 'Sin historia registrada.')}</p>${entry.image ? `<img class="event-story-image" src="${escapeHtml(entry.image)}" alt="Imagen del acontecimiento">` : ''}` : `<form class="event-form" data-event-id="${escapeHtml(entry.id)}">
+          <label>Historia <textarea name="story" rows="4" required placeholder="Redacta la historia...">${escapeHtml(entry.story || '')}</textarea></label>
+          <label>URL de imagen <input name="imageUrl" type="url" value="${escapeHtml(entry.image || '')}" placeholder="https://ejemplo.com/imagen.jpg"></label>
+          <label>o imagen del dispositivo <input name="imageFile" type="file" accept="image/*"></label>
+          <button class="save-character-btn" type="submit">Guardar acontecimiento</button>
+          <p class="deck-lock-note">Una vez guardado no se puede editar ni eliminar.</p>
+        </form>`}
+      </article>`).join('')}</div>` : '<p>Este personaje todavía no tiene acontecimientos.</p>'}
+    </section>
   `;
 
   document.querySelector('.character-gallery').classList.add('hidden');
@@ -1452,6 +1518,40 @@ function renderProfile(character) {
   document.querySelector('.back-to-gallery-btn').addEventListener('click', closeProfile);
   document.querySelector('.profile-form .cancel-character-btn').addEventListener('click', closeProfile);
   document.querySelector('[data-open-experience]')?.addEventListener('click', () => openExperienceModal(character));
+  const eventsPanel = profile.querySelector('.events-panel');
+  const profileForm = profile.querySelector('.profile-form');
+  profile.querySelector('[data-open-events]')?.addEventListener('click', () => {
+    profileForm.classList.add('hidden');
+    eventsPanel?.classList.remove('hidden');
+  });
+  profile.querySelector('[data-close-events]')?.addEventListener('click', () => {
+    eventsPanel?.classList.add('hidden');
+    profileForm.classList.remove('hidden');
+  });
+  profile.querySelectorAll('.event-form').forEach((eventForm) => {
+    eventForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const eventId = eventForm.dataset.eventId;
+      const latestCharacter = characters.find((entry) => entry.id === character.id);
+      const currentEvent = latestCharacter?.events?.[eventId];
+      if (!eventId || !currentEvent || currentEvent.locked) return;
+      const formData = new FormData(eventForm);
+      const story = String(formData.get('story') || '').trim();
+      const imageUrl = String(formData.get('imageUrl') || '').trim();
+      if (!story) return;
+      const saveEvent = async (imageValue) => {
+        await getCharacterRef(character.id).child(`events/${eventId}`).update({ story, image: imageValue || '', locked: true, savedAt: getTimestamp() });
+      };
+      const file = formData.get('imageFile');
+      if (file && file.size) {
+        const reader = new FileReader();
+        reader.addEventListener('load', async () => saveEvent(reader.result));
+        reader.readAsDataURL(file);
+      } else {
+        await saveEvent(imageUrl);
+      }
+    });
+  });
   document.querySelector('.profile-form .delete-character-btn').addEventListener('click', () => {
     deleteCharacter(activeProfileId);
   });

@@ -1291,3 +1291,40 @@ body::before {
 
 .xp-positive { color: #2ecc71; }
 .xp-negative { color: #e74c3c; }
+
+.events-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 1rem;
+}
+
+.event-card {
+  border: 1px solid rgba(196, 152, 70, 0.45);
+  border-radius: 10px;
+  padding: 0.8rem;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.event-thumb img {
+  width: 100%;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
+.event-tag {
+  display: inline-block;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  margin: 0.5rem 0;
+  font-weight: 700;
+}
+
+.event-tag.positive { background: #2ecc71; color: #0e2a18; }
+.event-tag.negative { background: #e74c3c; color: #fff3f0; }
+
+.event-story-image {
+  width: 100%;
+  border-radius: 6px;
+  margin-top: 0.4rem;
+}
