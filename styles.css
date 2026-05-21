@@ -1274,3 +1274,7 @@ body::before {
 .history-type-context-menu button:hover {
   background: rgba(244, 225, 163, 0.16);
 }
+
+
+.xp-positive { color: #2ecc71; }
+.xp-negative { color: #e74c3c; }
