@@ -931,10 +931,11 @@ function renderBattleArena() {
     slotsContainer.innerHTML = slots.map((slot) => {
       const card = slot.cardId ? characters.find((entry) => entry.id === slot.cardId) : null;
       const hiddenForOpponent = slot.faceDown && !isPlayer;
+      const obscuredForOwner = slot.faceDown && isPlayer;
       const canPlace = isPlayer && !slot.cardId && Boolean(selectedHandCardId) && Boolean(pendingPlacementMode);
       const canInspect = Boolean(slot.cardId);
       const content = slot.cardId
-        ? renderBattleCharacterCard(card, { hidden: hiddenForOpponent })
+        ? renderBattleCharacterCard(card, { hidden: hiddenForOpponent, obscured: obscuredForOwner })
         : '<span class="battle-slot-empty">Vacío</span>';;
       return `<button class="battle-slot ${slot.cardId ? 'occupied' : ''} ${slot.faceDown ? 'facedown' : ''}" data-battle-slot-id="${slot.id}" ${(!canPlace && !canInspect) ? 'disabled' : ''}>${content}</button>`;
     }).join('');
@@ -945,15 +946,15 @@ function renderBattleArena() {
   battleArenaModal.classList.remove('hidden');
 }
 
-function renderBattleCharacterCard(card, { hidden = false } = {}) {
+function renderBattleCharacterCard(card, { hidden = false, obscured = false } = {}) {
   if (hidden) {
-    return '<span class="battle-facedown-plate" aria-label="Carta boca abajo">◆</span>';
+    return '<span class="battle-facedown-plate" aria-label="Carta boca abajo"></span>';
   }
   if (!card) {
     return '<span class="battle-slot-empty">Carta</span>';
   }
   return renderSharedCharacterCard(card, {
-    extraClasses: 'battle-field-card character-size-compact',
+    extraClasses: `battle-field-card character-size-compact ${obscured ? 'battle-facedown-owner' : ''}`,
     staticCard: true,
   });
 }
