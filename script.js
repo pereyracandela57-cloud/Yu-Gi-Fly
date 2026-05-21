@@ -911,24 +911,50 @@ function getBotPreferredAttack(session, botUid) {
 
   let bestPlay = null;
   botSlots.forEach((attackerSlot) => {
-    battleAttributes.forEach((attribute) => {
-      const attackerValue = getEffectiveStatValue(session, attackerSlot.cardId, attribute);
-      rivalSlots.forEach((targetSlot) => {
-        const defenderValue = targetSlot.faceDown
-          ? null
-          : getEffectiveStatValue(session, targetSlot.cardId, attribute);
-        const score = defenderValue === null ? attackerValue : attackerValue - defenderValue;
-        if (!bestPlay || score > bestPlay.score) {
-          bestPlay = {
-            attackerSlotId: attackerSlot.id,
-            targetSlotId: targetSlot.id,
-            attribute,
-            score,
-          };
+    const bestAttribute = battleAttributes.reduce((best, attribute) => {
+      const value = getEffectiveStatValue(session, attackerSlot.cardId, attribute);
+      if (!best || value > best.value) {
+        return { attribute, value };
+      }
+      return best;
+    }, null);
+
+    if (!bestAttribute || bestAttribute.value <= 0) return;
+
+    const validTargets = rivalSlots
+      .map((targetSlot) => {
+        if (targetSlot.faceDown) {
+          return { targetSlot, defenderValue: null };
         }
-      });
+        const defenderValue = getEffectiveStatValue(session, targetSlot.cardId, bestAttribute.attribute);
+        if (defenderValue < bestAttribute.value) {
+          return { targetSlot, defenderValue };
+        }
+        return null;
+      })
+      .filter(Boolean);
+
+    if (!validTargets.length) return;
+
+    validTargets.sort((a, b) => {
+      const aValue = a.defenderValue === null ? Number.POSITIVE_INFINITY : a.defenderValue;
+      const bValue = b.defenderValue === null ? Number.POSITIVE_INFINITY : b.defenderValue;
+      return aValue - bValue;
     });
+
+    const selectedTarget = validTargets[0];
+    const attackScore = bestAttribute.value - (selectedTarget.defenderValue ?? 0);
+
+    if (!bestPlay || attackScore > bestPlay.score) {
+      bestPlay = {
+        attackerSlotId: attackerSlot.id,
+        targetSlotId: selectedTarget.targetSlot.id,
+        attribute: bestAttribute.attribute,
+        score: attackScore,
+      };
+    }
   });
+
   return bestPlay;
 }
 
@@ -1180,12 +1206,26 @@ async function executeBotTurn(session) {
     const emptyBotSlot = botSlots.find((slot) => !slot.cardId);
     const attackPlan = getBotPreferredAttack(session, BOT_UID);
 
-    if (botState.hand.length && emptyBotSlot) {
+    const hasPlacementOption = botState.hand.length && emptyBotSlot;
+    const hasAttackOption = Boolean(attackPlan);
+    const actionPool = [];
+    if (hasPlacementOption) {
+      actionPool.push('place-faceup', 'place-facedown');
+    }
+    if (hasAttackOption) {
+      actionPool.push('attack');
+    }
+
+    const selectedAction = actionPool.length
+      ? actionPool[Math.floor(Math.random() * actionPool.length)]
+      : null;
+
+    if (selectedAction === 'place-faceup' || selectedAction === 'place-facedown') {
       const cardId = botState.hand[0];
       const updatedHand = botState.hand.slice(1);
       const updatedDeck = [...botState.deck];
       if (updatedDeck.length) updatedHand.push(updatedDeck.shift());
-      const faceDown = Math.random() < 0.45;
+      const faceDown = selectedAction === 'place-facedown';
       const fieldSlots = (session.fieldSlots || []).map((slot) => (
         slot.id === emptyBotSlot.id ? { ...slot, cardId, faceDown } : slot
       ));
@@ -1200,7 +1240,7 @@ async function executeBotTurn(session) {
       return;
     }
 
-    if (attackPlan) {
+    if (selectedAction === 'attack' && attackPlan) {
       const targetSlot = (session.fieldSlots || []).find((slot) => slot.id === attackPlan.targetSlotId);
       const defenderAttribute = targetSlot?.faceDown
         ? battleAttributes[Math.floor(Math.random() * battleAttributes.length)]
